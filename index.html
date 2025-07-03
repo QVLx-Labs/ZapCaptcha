@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ZapCaptcha Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <link rel="preload" href="zap.svg" as="image" type="image/svg+xml" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Example 1: Inline CAPTCHA -->
+  <div class="example-box">
+    <h2>Inline Verification Example</h2>
+    <div class="zcaptcha-box" data-zcap-timeout="5">
+      <div class="zcaptcha-left">
+        <p class="zcaptcha-label">
+          <span class="label-unverified">☑️ For humans only</span>
+          <span class="label-verified">✅ I am human</span>
+        </p>
+      </div>
+      <div class="zcaptcha-right">
+        <img src="zap.svg" alt="zapcaptcha logo" class="zcaptcha-logo">
+        <p class="zname">ZapCaptcha</p>
+        <div class="zcaptcha-terms">
+          <a href="#">Privacy</a> · <a href="#">Terms</a>
+        </div>
+      </div>
+    </div>
+    <button class="zapcaptcha-button" id="inlineTrigger">Verify Me</button>
+    <div class="inline-result"></div>
+  </div>
+
+  <hr>
+
+  <!-- Example 2: Classic Form CAPTCHA -->
+  <h2>Form Submission Example</h2>
+  <form id="demoForm" action="success.html" method="POST">
+    <div class="zcaptcha-box" data-zcap-timeout="5">
+      <div class="zcaptcha-left">
+        <p class="zcaptcha-label">
+          <span class="label-unverified">☑️ For humans only</span>
+          <span class="label-verified">✅ I am human</span>
+        </p>
+      </div>
+      <div class="zcaptcha-right">
+        <img src="zap.svg" alt="zapcaptcha logo" class="zcaptcha-logo">
+        <p class="zname">ZapCaptcha</p>
+        <div class="zcaptcha-terms">
+          <a href="#">Privacy</a> · <a href="#">Terms</a>
+        </div>
+      </div>
+    </div>
+    <input type="text" placeholder="Your name" required />
+    <br><br>
+    <button type="submit" class="zapcaptcha-button" id="formTrigger">Submit</button>
+  </form>
+
+  <script src="zapcaptcha.js"></script>
+  <script src="counterbot.js"></script>
+  <script>
+    window.addEventListener("DOMContentLoaded", () => {
+      const inlineTrigger = document.getElementById("inlineTrigger");
+      const formTrigger = document.getElementById("formTrigger");
+
+      if (inlineTrigger) {
+        inlineTrigger.addEventListener("click", (e) => {
+          e.preventDefault();
+          const box = inlineTrigger.closest(".example-box");
+          const label = box.querySelector(".zcaptcha-label");
+          const result = box.querySelector(".inline-result");
+
+          window.ZapCaptcha?.verify(inlineTrigger, () => {
+            label.classList.add("verified");
+            result.textContent = "✅ Human verified!";
+          });
+        });
+      }
+
+      if (formTrigger) {
+        formTrigger.addEventListener("click", (e) => {
+          e.preventDefault();
+          const form = document.getElementById("demoForm");
+          const label = form.querySelector(".zcaptcha-label");
+
+          window.ZapCaptcha?.verify(formTrigger, () => {
+            label.classList.add("verified");
+            setTimeout(() => form.submit(), 1000);
+          });
+        });
+      }
+    });
+  </script>
+
+</body>
+</html>
