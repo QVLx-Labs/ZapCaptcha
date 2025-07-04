@@ -58,12 +58,9 @@
       if (inlineTrigger) {
         inlineTrigger.addEventListener("click", (e) => {
           e.preventDefault();
-          const box = document.querySelector(`.zcaptcha-box[data-target-id="${inlineTrigger.id}"]`);
-          const label = box?.querySelector(".zcaptcha-label");
-          const result = box?.closest(".example-box")?.querySelector(".inline-result");
+          const result = inlineTrigger.closest(".example-box")?.querySelector(".inline-result");
   
           window.ZapCaptcha?.verify(inlineTrigger, () => {
-            label?.classList.add("verified");
             if (result) result.textContent = "✅ Human verified!";
           });
         });
@@ -73,11 +70,8 @@
         formTrigger.addEventListener("click", (e) => {
           e.preventDefault();
           const form = document.getElementById("demoForm");
-          const box = document.querySelector(`.zcaptcha-box[data-target-id="${formTrigger.id}"]`);
-          const label = box?.querySelector(".zcaptcha-label");
   
           window.ZapCaptcha?.verify(formTrigger, () => {
-            label?.classList.add("verified");
             setTimeout(() => form.submit(), 1000);
           });
         });
