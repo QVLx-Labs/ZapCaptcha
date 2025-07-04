@@ -1,3 +1,8 @@
+// AT flags
+let consoleTamperDetection = false;
+let debuggerTimerDetection = false;
+let devToolsDetection = false;
+
 window.addEventListener("pageshow", function (e) {
   if (e.persisted) location.reload();
 });
@@ -9,6 +14,8 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
 
 (function () {
   const verifiedMap = new WeakMap();
+  const timeoutMap = new WeakMap();
+  
   const isMobile = /Mobi|Android/i.test(navigator.userAgent);
   const viewportMeta = document.querySelector('meta[name="viewport"]');
   const notUserScalable = viewportMeta && /user-scalable\s*=\s*no/i.test(viewportMeta.content);
@@ -17,7 +24,14 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
 
   function getStorageName(box) {
     if (!box) return "default";
-    return box.dataset.zcapId || box.querySelector(".zcaptcha-logo")?.alt || "default";
+    if (box.dataset.zcapId) return box.dataset.zcapId;
+  
+    // Fall back to data-target-id if explicitly set
+    const targetId = box.getAttribute("data-target-id");
+    if (targetId) return `zcid_${targetId}`;
+  
+    // Absolute fallback: give hardcoded label (won't break anything)
+    return "zcid_fallback";
   }
 
   function generateNonce() {
@@ -61,25 +75,44 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
 
   function showTimeoutMessage(box) {
     if (!box) return;
-    let msg = box.querySelector(".zcaptcha-expired");
-    if (!msg) {
-      msg = document.createElement("div");
-      msg.className = "zcaptcha-expired";
-      msg.style.color = "red";
-      msg.style.fontSize = "0.9em";
-      msg.style.marginTop = "6px";
-      msg.textContent = "Captcha expired, please try again";
-      box.appendChild(msg);
-      
-      setTimeout(() => msg.remove(), 5000); // Autoremove message
-    }
-    msg.setAttribute("aria-live", "polite"); // May need to remove this. Lets see.
+  
+    // Remove old message if any
+    const oldMsg = box.querySelector(".zcap-timeout-message");
+    if (oldMsg) oldMsg.remove();
+  
+    // Create new message
+    const msg = document.createElement("div");
+    msg.className = "zcap-timeout-message";
+    msg.textContent = "Captcha expired. Please retry.";
+  
+    // Style it visibly (override if needed)
+    msg.style.color = "red";
+    msg.style.fontSize = "0.9em";
+    msg.style.marginTop = "0px";
+    msg.style.marginBottom = "0px";
+    msg.style.marginLeft = "0px";
+    msg.style.marginRight = "0px";
+  
+    box.appendChild(msg);
+  
+    // Dispatch event (optional for advanced users)
+    box.dispatchEvent(new CustomEvent("zapcaptcha-expired", {
+      detail: { timestamp: Date.now() }
+    }));
   }
 
   function removeTimeoutMessage(box) {
     if (!box) return;
-    const msg = box.querySelector(".zcaptcha-expired");
+    const msg = box.querySelector(".zcap-timeout-message");
     if (msg) msg.remove();
+  }
+  
+  // Clear any previous timeout for this trigger
+  function clearTimeoutWatcher(triggerEl) {
+    if (timeoutMap.has(triggerEl)) {
+      clearTimeout(timeoutMap.get(triggerEl));
+      timeoutMap.delete(triggerEl);
+    }
   }
 
   function setTimeoutWatcher(box, triggerEl) {
@@ -87,42 +120,65 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
     const timeoutSec = parseInt(timeoutAttr, 10);
     if (!timeoutSec || isNaN(timeoutSec) || timeoutSec < 3) return;
 
-    setTimeout(() => {
+    clearTimeoutWatcher(triggerEl);
+  
+    const timeoutId = setTimeout(() => {
+      const trueBox = document.querySelector(`.zcaptcha-box[data-target-id="${triggerEl.id}"]`) || box;
+      
       verifiedMap.delete(triggerEl);
       triggerEl.removeAttribute("data-zcap-verified-at");
-      clearNonce(box);
-      let label = box.querySelector(".zcaptcha-label");
-      if (!label) {
-        label = box.querySelector(".zcaptcha-left span");
-      }
+      clearNonce(trueBox);
+  
+      let label = box.querySelector(".zcaptcha-label") || box.querySelector(".zcaptcha-left span");
       label?.classList.remove("verified");
-      showTimeoutMessage(box);
+  
+      showTimeoutMessage(trueBox);
       
-      // Remove dimming overlay if still present
+      // Auto-remove the expiration message after a delay (optional)
+      setTimeout(() => {
+        const expiredMsg = trueBox.querySelector(".zcap-timeout-message");
+        if (expiredMsg) expiredMsg.remove();
+      }, 6000); // Remove after 6s, tweak as needed
+      
+      // Destroy DOM mode bouncer if exists
+      document.querySelectorAll(".zcaptcha-bouncer").forEach(el => el.remove());
+      
+      // Destroy canvas if exists
+      document.querySelectorAll("canvas").forEach(el => {
+        if (el._raf) cancelAnimationFrame(el._raf);
+        el.remove();
+      });
+  
       const overlay = document.querySelector(".zcaptcha-overlay");
       if (overlay) overlay.remove();
-      box.dispatchEvent(new CustomEvent("zapcaptcha-expired", {
+  
+      trueBox.dispatchEvent(new CustomEvent("zapcaptcha-expired", {
         detail: {
           timeout: timeoutSec,
           timestamp: Date.now()
         }
       }));
+  
+      timeoutMap.delete(triggerEl); // Clean up
     }, timeoutSec * 1000);
+  
+    timeoutMap.set(triggerEl, timeoutId);
   }
 
   window.ZapCaptcha = {
     submitDelay: 1000,
     verify(triggerEl, onSuccess) {
-      const box = triggerEl.closest(".zcaptcha-box") || document.querySelector(".zcaptcha-box");
+      const triggerId = triggerEl.getAttribute("id");
+      const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerEl.id}"]`);
+      if (!box) {
+        console.error("ZapCaptcha failed to find box for trigger:", triggerEl.id);
+        return;
+      }
       const timestamp = triggerEl.dataset.zcapVerifiedAt;
       const lastNonce = getNonce(box);
       const now = Date.now();
-      
-      if (!box) {
-        console.warn("ZapCaptcha could not find .zcaptcha-box – fallback failed.");
-        return;
-      }
 
+      clearTimeoutWatcher(triggerEl);
       removeTimeoutMessage(box);
 
      if (verifiedMap.get(triggerEl) && timestamp && lastNonce) {
@@ -145,19 +201,25 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
 
       const delay = getCryptoFloat(500, 2200);
       setTimeout(() => {
-        const launch = useCanvasMode ? launchZcaptchaCanvas : launchZcaptchaDOM;
-        launch(triggerEl, () => {
+        setTimeoutWatcher(box, triggerEl);
+        const launchFunc = useCanvasMode ? launchZcaptchaCanvas : launchZcaptchaDOM;
+        launchFunc(triggerEl, () => {
           verifiedMap.set(triggerEl, true);
           triggerEl.dataset.zcapVerifiedAt = Date.now();
           const newNonce = generateNonce();
           setNonce(box, newNonce);
-          setTimeoutWatcher(box, triggerEl);
           onSuccess?.();
         });
       }, delay);
     },
     isVerified(triggerEl) {
-      const box = triggerEl.closest(".zcaptcha-box") || document.querySelector(".zcaptcha-box");
+      const triggerId = triggerEl.getAttribute("id");
+      const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerId}"]`);
+      if (!box) {
+        console.error("ZapCaptcha failed to find box for trigger:", triggerId);
+        return;
+      }
+
       const ts = parseInt(triggerEl.dataset.zcapVerifiedAt || "0", 10);
       const age = (Date.now() - ts) / 1000;
       const timeoutAttr = box?.getAttribute("data-zcap-timeout");
@@ -169,13 +231,79 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
       );
     },
     clear(triggerEl) {
-      const box = triggerEl.closest(".zcaptcha-box") || document.querySelector(".zcaptcha-box");
+      const triggerId = triggerEl.getAttribute("id");
+      const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerId}"]`);
+      if (!box) {
+        console.error("ZapCaptcha failed to find box for trigger:", triggerId);
+        return;
+      }
+    
+      clearTimeoutWatcher(triggerEl);
+      removeTimeoutMessage(box);
       verifiedMap.delete(triggerEl);
       triggerEl.removeAttribute("data-zcap-verified-at");
       clearNonce(box);
-      showTimeoutMessage(box);
     }
   };
+
+  // Freeze ZapCaptcha Object
+  Object.freeze(window.ZapCaptcha);
+  Object.freeze(window.ZapCaptcha.verify);
+  Object.freeze(window.ZapCaptcha.isVerified);
+  Object.defineProperty(window, 'ZapCaptcha', { writable: false, configurable: false });
+
+  // Periodic zapcaptcha.js Integrity Check
+  (function checkZapCaptchaJS() {
+    const meta = document.querySelector('meta[name="zap-integrity"]');
+    if (!meta || !meta.content || !meta.content.startsWith("sha256-")) return;
+  
+    const expected = meta.content.trim();
+  
+    function performCheck() {
+      fetch("zapcaptcha.js")
+        .then(r => r.ok ? r.text() : Promise.reject("Failed to fetch zapcaptcha.js"))
+        .then(text => sha256(text))
+        .then(hash => {
+          const actual = "sha256-" + hash;
+          if (actual !== expected) {
+            document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Integrity Error</h1>";
+            throw new Error(`zapcaptcha.js hash mismatch\nExpected: ${expected}\nActual: ${actual}`);
+          }
+        })
+        .catch(err => {
+          console.error("ZapCaptcha integrity check failed:", err);
+          document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Integrity Check Failed</h1>";
+        });
+    }
+  
+    // Initial check
+    performCheck();
+  
+    // Re-check every 10 seconds
+    setInterval(performCheck, 10000);
+  })();
+
+  // SHA-256 Helper
+  function sha256(str) {
+    const buf = new TextEncoder().encode(str);
+    return crypto.subtle.digest("SHA-256", buf).then(hash => {
+      return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    });
+  }
+
+  // Re-enable UI Buttons and assign unique zcapId to each box
+  window.addEventListener("DOMContentLoaded", () => {
+    // Re-enable buttons
+    document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.removeAttribute("disabled"));
+  
+    // Assign unique zcapId to each captcha box
+    document.querySelectorAll(".zcaptcha-box").forEach((box) => {
+      if (!box.dataset.zcapId || box.dataset.zcapId.trim() === "") {
+        const uuid = crypto.randomUUID?.() || Math.random().toString(36).slice(2, 10);
+        box.dataset.zcapId = `zcid_${uuid}`;
+      }
+    });
+  });
 
   function disableUI() {
     const overlay = document.createElement("div");
@@ -184,6 +312,22 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
     overlay.addEventListener("click", (e) => e.stopPropagation());
     document.body.appendChild(overlay);
   }
+ 
+  function preventInjection() {
+    try {
+      const origCreateElement = Document.prototype.createElement;
+      Document.prototype.createElement = function(tagName, options) {
+        if (["script", "iframe", "object", "embed"].includes(String(tagName).toLowerCase())) {
+          console.warn("Blocked suspicious element creation:", tagName);
+          return document.createElement("div");
+        }
+        return origCreateElement.call(this, tagName, options);
+      };
+    } catch (err) {
+      console.error("Injection prevention failed:", err);
+    }
+  }
+  preventInjection();
 
   function getCryptoFloat(min, max) {
     const buf = new Uint32Array(1);
@@ -263,10 +407,10 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
       </div>
     `;
     document.body.appendChild(box);
-    animateBox(box, callback);
+    animateBox(box, triggerEl, callback);
   }
 
-  function animateBox(box, callback) {
+  function animateBox(box, triggerEl, callback) {
     const boundsWidth = document.documentElement.clientWidth;
     const boundsHeight = document.documentElement.clientHeight;
     const width = box.offsetWidth;
@@ -323,6 +467,8 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
       fadeAndRemove(box);
       const overlay = document.querySelector(".zcaptcha-overlay");
       if (overlay) fadeAndRemove(overlay);
+      clearTimeoutWatcher(triggerEl);
+      removeTimeoutMessage(box);
       callback?.();
     });
   }
@@ -436,4 +582,60 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
   preload.as = "image";
   preload.href = "zap.svg";
   document.head.appendChild(preload);
+  
+    (function enforceConsoleSecurity() {
+    // Trap 1: Image .id getter trick
+    const img = new Image();
+    Object.defineProperty(img, 'id', {
+      get: function () {
+        if (devToolsDetection) {
+          document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Anti-Tamper: DevTools detected. Access denied.</h1>";
+          throw new Error("DevTools accessed via console inspection");
+        }
+      }
+    });
+ 
+    // Trap 2: Debugger timing anomaly
+    function timingCheck() {
+      const start = performance.now();
+      debugger;
+      const end = performance.now();
+      if (end - start > 50) {
+        if (debuggerTimerDetection) {
+          document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Anti-Tamper: Debugger timing anomaly detected. Access denied.</h1>";
+          throw new Error("Debugger slowdown detected");
+        }
+      }
+    }
+ 
+    // Trap 3: Dimension discrepancy detection
+    function dimensionCheck() {
+      const threshold = 160;
+      const wDiff = window.outerWidth - window.innerWidth;
+      const hDiff = window.outerHeight - window.innerHeight;
+      if (wDiff > threshold || hDiff > threshold) {
+        if (consoleTamperDetection) {
+          document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Anti-Tamper: Console tamper detected. Access denied.</h1>";
+          throw new Error("DevTools window dimension anomaly");
+        }
+      }
+    }
+ 
+    // Trap 4: Probe detection via console.log()
+    function probeCheck() {
+      console.log(img); // Triggers the getter if DevTools is open
+    }
+ 
+    // Run all checks repeatedly
+    setInterval(() => {
+      try {
+        probeCheck();
+        timingCheck();
+        dimensionCheck();
+      } catch (e) {
+        console.error("Security exception:", e);
+      }
+    }, 1000);
+  })();
+  
 })();
