@@ -1,16 +1,85 @@
+/* ZapCaptcha – Human-first cryptographic CAPTCHA system
+ * -----------------------------------------------------
+ * Designed and developed by QVLx Labs.
+ * https://www.qvlx.com
+ *
+ * © 2024–2025 QVLx Labs. All rights reserved.
+ * ZapCaptcha is a proprietary CAPTCHA system for front-end validation without backend server reliance.
+ *
+ * This software is licensed for non-commercial use and authorized commercial use only.
+ * Unauthorized reproduction, redistribution, or tampering is strictly prohibited.
+ *
+ * ZapCaptcha includes anti-bot measures, DOM mutation traps, and telemetry hooks.
+ * Attempted bypass, obfuscation, or automation is a violation of applicable laws and terms of use.
+ *
+ * To license ZapCaptcha for enterprise/commercial use, contact:
+ * security@qvlx.com
+ */
+
 // AT flags
-let consoleTamperDetection = false;
-let debuggerTimerDetection = false;
-let devToolsDetection = false;
+let consoleTamperDetection = true;
+let debuggerTimerDetection = true;
+let devToolsDetection = true; // Doesn't throw
+let checksumVerification = true;
 
 window.addEventListener("pageshow", function (e) {
   if (e.persisted) location.reload();
 });
 
+// Eventually I'll solve this issue. TODO
 const meta = document.querySelector('meta[name="viewport"]');
 if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
   console.warn("ZapCaptcha requires viewport meta tag with 'user-scalable=no' to ensure layout stability on mobile. Falling back to DOM mode, which is less secure and bot-proof.");
 }
+
+// Periodic zapcaptcha.js Integrity Check
+(function checkZapCaptchaJS() {
+  const meta = document.querySelector('meta[name="zap-integrity"]');
+  if (!meta || !meta.content || !meta.content.startsWith("sha256-")) return;
+
+  const expected = meta.content.trim();
+
+  function performCheck() {
+    fetch("zapcaptcha.js")
+      .then(r => r.ok ? r.text() : Promise.reject("Failed to fetch zapcaptcha.js"))
+      .then(text => sha256(text))
+      .then(hash => {
+        const actual = "sha256-" + hash;
+        if (actual !== expected) {
+          document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Integrity Error</h1>";
+          throw new Error(`zapcaptcha.js hash mismatch\nExpected: ${expected}\nActual: ${actual}`);
+        }
+      })
+      .catch(err => {
+        console.error("ZapCaptcha: Integrity check failed:", err);
+        document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Anti-Tamper: Integrity Check Failed. Access Denied.</h1>";
+      });
+  }
+
+  if (checksumVerification) {
+    performCheck(); // Initial check
+    setInterval(performCheck, 10000); // Poll every x seconds
+  }
+})();
+
+// SHA-256 Helper
+function sha256(str) {
+  const buf = new TextEncoder().encode(str);
+  return crypto.subtle.digest("SHA-256", buf).then(hash => {
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  });
+}
+
+// Ensure styling of captcha is constant
+(function injectZapCaptchaCSS() {
+  const existing = document.querySelector('link[href*="zapcaptcha.css"]');
+  if (!existing) {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://cdn.example.com/zapcaptcha.css";
+    document.head.appendChild(link);
+  }
+})();
 
 (function () {
   const verifiedMap = new WeakMap();
@@ -141,7 +210,10 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
       }, 6000); // Remove after 6s, tweak as needed
       
       // Destroy DOM mode bouncer if exists
-      document.querySelectorAll(".zcaptcha-bouncer").forEach(el => el.remove());
+      document.querySelectorAll(".zcaptcha-bouncer").forEach(el => {
+        if (el._raf) cancelAnimationFrame(el._raf);
+        fadeAndRemove(el);
+      });
       
       // Destroy canvas if exists
       document.querySelectorAll("canvas").forEach(el => {
@@ -252,56 +324,32 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
   Object.freeze(window.ZapCaptcha.isVerified);
   Object.defineProperty(window, 'ZapCaptcha', { writable: false, configurable: false });
 
-  // Periodic zapcaptcha.js Integrity Check
-  (function checkZapCaptchaJS() {
-    const meta = document.querySelector('meta[name="zap-integrity"]');
-    if (!meta || !meta.content || !meta.content.startsWith("sha256-")) return;
-  
-    const expected = meta.content.trim();
-  
-    function performCheck() {
-      fetch("zapcaptcha.js")
-        .then(r => r.ok ? r.text() : Promise.reject("Failed to fetch zapcaptcha.js"))
-        .then(text => sha256(text))
-        .then(hash => {
-          const actual = "sha256-" + hash;
-          if (actual !== expected) {
-            document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Integrity Error</h1>";
-            throw new Error(`zapcaptcha.js hash mismatch\nExpected: ${expected}\nActual: ${actual}`);
-          }
-        })
-        .catch(err => {
-          console.error("ZapCaptcha integrity check failed:", err);
-          document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Integrity Check Failed</h1>";
-        });
-    }
-  
-    // Initial check
-    performCheck();
-  
-    // Re-check every 10 seconds
-    setInterval(performCheck, 10000);
-  })();
-
-  // SHA-256 Helper
-  function sha256(str) {
-    const buf = new TextEncoder().encode(str);
-    return crypto.subtle.digest("SHA-256", buf).then(hash => {
-      return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-    });
-  }
-
-  // Re-enable UI Buttons and assign unique zcapId to each box
+  // Re-enable UI Buttons and standardize captcha boxes
   window.addEventListener("DOMContentLoaded", () => {
-    // Re-enable buttons
     document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.removeAttribute("disabled"));
   
-    // Assign unique zcapId to each captcha box
     document.querySelectorAll(".zcaptcha-box").forEach((box) => {
       if (!box.dataset.zcapId || box.dataset.zcapId.trim() === "") {
         const uuid = crypto.randomUUID?.() || Math.random().toString(36).slice(2, 10);
         box.dataset.zcapId = `zcid_${uuid}`;
       }
+  
+      // Wipe and inject standardized structure
+      box.innerHTML = `
+        <div class="zcaptcha-left">
+          <p class="zcaptcha-label">
+            <span class="label-unverified">🔒 For humans only</span>
+            <span class="label-verified">✅ I am human</span>
+          </p>
+        </div>
+        <div class="zcaptcha-right">
+          <img src="zap.svg" alt="zapcaptcha logo" class="zcaptcha-logo">
+          <p class="zname">ZapCaptcha</p>
+          <div class="zcaptcha-terms">
+            <a href="https://zapcaptcha.com/privacy">Privacy</a> · <a href="https://zapcaptcha.com/terms">Terms</a>
+          </div>
+        </div>
+      `;
     });
   });
 
@@ -425,7 +473,7 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
     const move = () => {
       jitterCounter++;
       if (jitterCounter % 30 === 0) {
-        const speed = getCryptoFloat(1.5, 4.5);
+        const speed = getCryptoFloat(1.5, 3.0);
         const angle = getCryptoFloat(0, 2 * Math.PI);
         dx = Math.cos(angle) * speed;
         dy = Math.sin(angle) * speed;
@@ -528,7 +576,7 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
 
         jitterCounter++;
         if (jitterCounter % 30 === 0) {
-          const speed = getCryptoFloat(1.5, 4.5);
+          const speed = getCryptoFloat(1.5, 3.0);
           const angle = getCryptoFloat(0, 2 * Math.PI);
           dx = Math.cos(angle) * speed;
           dy = Math.sin(angle) * speed;
@@ -577,6 +625,7 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
     }
   }
 
+  // Performance
   const preload = document.createElement("link");
   preload.rel = "preload";
   preload.as = "image";
@@ -584,18 +633,17 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
   document.head.appendChild(preload);
   
     (function enforceConsoleSecurity() {
-    // Trap 1: Image .id getter trick
+    // Trap: Image .id getter trick
     const img = new Image();
     Object.defineProperty(img, 'id', {
       get: function () {
         if (devToolsDetection) {
-          document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Anti-Tamper: DevTools detected. Access denied.</h1>";
-          throw new Error("DevTools accessed via console inspection");
+          console.warn("DevTools accessed via console inspection"); // Won't throw because this check is pretty inaccurate
         }
       }
     });
  
-    // Trap 2: Debugger timing anomaly
+    // Trap: Debugger timing anomaly
     function timingCheck() {
       const start = performance.now();
       debugger;
@@ -608,7 +656,7 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
       }
     }
  
-    // Trap 3: Dimension discrepancy detection
+    // Trap: Dimension discrepancy detection
     function dimensionCheck() {
       const threshold = 160;
       const wDiff = window.outerWidth - window.innerWidth;
@@ -621,9 +669,9 @@ if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
       }
     }
  
-    // Trap 4: Probe detection via console.log()
+    // Trap: Probe detection via console.log()
     function probeCheck() {
-      console.log(img); // Triggers the getter if DevTools is open
+      img.id; // Trigger silently
     }
  
     // Run all checks repeatedly
