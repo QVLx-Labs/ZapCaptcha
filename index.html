@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>ZapCaptcha Demo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- <meta name="zap-integrity" content="sha256-cbe62624280d29dcd973c02cb069fcff35599673216a7ccb85bc99e06690c394"> -->
   <link rel="preload" href="zap.svg" as="image" type="image/svg+xml" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -12,7 +13,7 @@
   <!-- Example 1: Inline CAPTCHA -->
   <div class="example-box">
     <h2>Inline Verification Example</h2>
-    <div class="zcaptcha-box" data-zcap-timeout="5">
+    <div class="zcaptcha-box" data-zcap-timeout="5" data-target-id="example1_button">
       <div class="zcaptcha-left">
         <p class="zcaptcha-label">
           <span class="label-unverified">☑️ For humans only</span>
@@ -27,7 +28,7 @@
         </div>
       </div>
     </div>
-    <button class="zapcaptcha-button" id="inlineTrigger">Verify Me</button>
+    <button class="zapcaptcha-button" id="example1_button">Verify Me</button>
     <div class="inline-result"></div>
   </div>
 
@@ -36,7 +37,7 @@
   <!-- Example 2: Classic Form CAPTCHA -->
   <h2>Form Submission Example</h2>
   <form id="demoForm" action="success.html" method="POST">
-    <div class="zcaptcha-box" data-zcap-timeout="5">
+    <div class="zcaptcha-box" data-zcap-timeout="5" data-target-id="example2_button">
       <div class="zcaptcha-left">
         <p class="zcaptcha-label">
           <span class="label-unverified">☑️ For humans only</span>
@@ -53,44 +54,44 @@
     </div>
     <input type="text" placeholder="Your name" required />
     <br><br>
-    <button type="submit" class="zapcaptcha-button" id="formTrigger">Submit</button>
+    <button type="submit" class="zapcaptcha-button" id="example2_button">Submit</button>
   </form>
 
   <script src="zapcaptcha.js"></script>
   <script src="counterbot.js"></script>
   <script>
     window.addEventListener("DOMContentLoaded", () => {
-      const inlineTrigger = document.getElementById("inlineTrigger");
-      const formTrigger = document.getElementById("formTrigger");
-
+      const inlineTrigger = document.getElementById("example1_button");
+      const formTrigger = document.getElementById("example2_button");
+  
       if (inlineTrigger) {
         inlineTrigger.addEventListener("click", (e) => {
           e.preventDefault();
-          const box = inlineTrigger.closest(".example-box");
-          const label = box.querySelector(".zcaptcha-label");
-          const result = box.querySelector(".inline-result");
-
+          const box = document.querySelector(`.zcaptcha-box[data-target-id="${inlineTrigger.id}"]`);
+          const label = box?.querySelector(".zcaptcha-label");
+          const result = box?.closest(".example-box")?.querySelector(".inline-result");
+  
           window.ZapCaptcha?.verify(inlineTrigger, () => {
-            label.classList.add("verified");
-            result.textContent = "✅ Human verified!";
+            label?.classList.add("verified");
+            if (result) result.textContent = "✅ Human verified!";
           });
         });
       }
-
+  
       if (formTrigger) {
         formTrigger.addEventListener("click", (e) => {
           e.preventDefault();
           const form = document.getElementById("demoForm");
-          const label = form.querySelector(".zcaptcha-label");
-
+          const box = document.querySelector(`.zcaptcha-box[data-target-id="${formTrigger.id}"]`);
+          const label = box?.querySelector(".zcaptcha-label");
+  
           window.ZapCaptcha?.verify(formTrigger, () => {
-            label.classList.add("verified");
+            label?.classList.add("verified");
             setTimeout(() => form.submit(), 1000);
           });
         });
       }
     });
   </script>
-
 </body>
 </html>
