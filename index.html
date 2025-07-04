@@ -1,10 +1,29 @@
+<!--
+  ZapCaptcha – Human-first cryptographic CAPTCHA system
+
+  Designed and developed by QVLx Labs.
+  https://www.qvlx.com
+ 
+  © 2024–2025 QVLx Labs. All rights reserved.
+  ZapCaptcha is a proprietary CAPTCHA system for front-end validation without backend server reliance.
+ 
+  This software is licensed for non-commercial use and authorized commercial use only.
+  Unauthorized reproduction, redistribution, or tampering is strictly prohibited.
+ 
+  ZapCaptcha includes anti-bot measures, DOM mutation traps, and telemetry hooks.
+  Attempted bypass, obfuscation, or automation is a violation of applicable laws and terms of use.
+ 
+  To license ZapCaptcha for enterprise/commercial use, contact:
+  security@qvlx.com
+-->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <title>ZapCaptcha Demo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <!-- <meta name="zap-integrity" content="sha256-cbe62624280d29dcd973c02cb069fcff35599673216a7ccb85bc99e06690c394"> -->
+  <!-- <meta name="zap-integrity" content="sha256-5d8e35fa2710bf6fa87db28b791e0dd6aa79bb2f8bcaca57bd07cadb2eb86d2d"> -->
   <link rel="preload" href="zap.svg" as="image" type="image/svg+xml" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -13,21 +32,7 @@
   <!-- Example 1: Inline CAPTCHA -->
   <div class="example-box">
     <h2>Inline Verification Example</h2>
-    <div class="zcaptcha-box" data-zcap-timeout="5" data-target-id="example1_button">
-      <div class="zcaptcha-left">
-        <p class="zcaptcha-label">
-          <span class="label-unverified">☑️ For humans only</span>
-          <span class="label-verified">✅ I am human</span>
-        </p>
-      </div>
-      <div class="zcaptcha-right">
-        <img src="zap.svg" alt="zapcaptcha logo" class="zcaptcha-logo">
-        <p class="zname">ZapCaptcha</p>
-        <div class="zcaptcha-terms">
-          <a href="#">Privacy</a> · <a href="#">Terms</a>
-        </div>
-      </div>
-    </div>
+    <div class="zcaptcha-box" data-zcap-timeout="5" data-target-id="example1_button"></div>
     <button class="zapcaptcha-button" id="example1_button">Verify Me</button>
     <div class="inline-result"></div>
   </div>
@@ -37,21 +42,7 @@
   <!-- Example 2: Classic Form CAPTCHA -->
   <h2>Form Submission Example</h2>
   <form id="demoForm" action="success.html" method="POST">
-    <div class="zcaptcha-box" data-zcap-timeout="5" data-target-id="example2_button">
-      <div class="zcaptcha-left">
-        <p class="zcaptcha-label">
-          <span class="label-unverified">☑️ For humans only</span>
-          <span class="label-verified">✅ I am human</span>
-        </p>
-      </div>
-      <div class="zcaptcha-right">
-        <img src="zap.svg" alt="zapcaptcha logo" class="zcaptcha-logo">
-        <p class="zname">ZapCaptcha</p>
-        <div class="zcaptcha-terms">
-          <a href="#">Privacy</a> · <a href="#">Terms</a>
-        </div>
-      </div>
-    </div>
+    <div class="zcaptcha-box" data-zcap-timeout="5" data-target-id="example2_button"></div>
     <input type="text" placeholder="Your name" required />
     <br><br>
     <button type="submit" class="zapcaptcha-button" id="example2_button">Submit</button>
