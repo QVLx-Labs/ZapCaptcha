@@ -1,4 +1,5 @@
-/* ZapCaptcha – Human-first cryptographic CAPTCHA system
+/*!
+ * ZapCaptcha – Human-first cryptographic CAPTCHA system
  * -----------------------------------------------------
  * Designed and developed by QVLx Labs.
  * https://www.qvlx.com
@@ -20,7 +21,7 @@
 let consoleTamperDetection = true;
 let debuggerTimerDetection = true;
 let devToolsDetection = true; // Doesn't throw
-let checksumVerification = true;
+let checksumVerification = false;
 
 window.addEventListener("pageshow", function (e) {
   if (e.persisted) location.reload();
@@ -31,6 +32,25 @@ const meta = document.querySelector('meta[name="viewport"]');
 if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
   console.warn("ZapCaptcha requires viewport meta tag with 'user-scalable=no' to ensure layout stability on mobile. Falling back to DOM mode, which is less secure and bot-proof.");
 }
+
+// This helps out a bit with FOUC
+(function injectCriticalCSS() {
+  const style = document.createElement("style");
+  style.textContent = `
+    .zcaptcha-label:not(.verified) .label-verified {
+      display: none;
+      opacity: 0;
+      transform: scale(0.95);
+    }
+
+    .zcaptcha-label.verified .label-unverified {
+      display: none;
+      opacity: 0;
+      transform: scale(0.95);
+    }
+  `;
+  document.head.appendChild(style);
+})();
 
 // Periodic zapcaptcha.js Integrity Check
 (function checkZapCaptchaJS() {
@@ -76,7 +96,7 @@ function sha256(str) {
   if (!existing) {
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = "https://cdn.example.com/zapcaptcha.css";
+    link.href = "https://zapcaptcha.com/zapcaptcha.css";
     document.head.appendChild(link);
   }
 })();
@@ -275,11 +295,22 @@ function sha256(str) {
       setTimeout(() => {
         setTimeoutWatcher(box, triggerEl);
         const launchFunc = useCanvasMode ? launchZcaptchaCanvas : launchZcaptchaDOM;
+        const lbl = box.querySelector(".zcaptcha-label");
+        lbl?.classList.remove("verified");
         launchFunc(triggerEl, () => {
           verifiedMap.set(triggerEl, true);
           triggerEl.dataset.zcapVerifiedAt = Date.now();
           const newNonce = generateNonce();
           setNonce(box, newNonce);
+          const label = box.querySelector(".zcaptcha-label");
+          if (label) {
+            label.classList.remove("verified");
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                label.classList.add("verified");
+              });
+            });
+          }
           onSuccess?.();
         });
       }, delay);
