@@ -1,0 +1,192 @@
+.zname {
+  margin: 0;
+  font-size: 13px;
+  height: auto;
+}
+
+.zcaptcha-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 2px solid #ccc;
+  border-radius: 8px;
+  padding: 8px;
+  background-color: white;
+  width: 320px;
+  margin: 0 auto;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.1);
+}
+
+.zcaptcha-left {
+  font-size: 16px;
+  color: #606060;
+  padding-left: 8px;
+}
+
+.zcaptcha-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.zcaptcha-logo {
+  width: 46px;
+  height: 46px;
+  display: block;
+}
+
+.zcaptcha-terms {
+  font-size: 11px;
+  margin: 0;
+  padding: 0;
+}
+
+.zcaptcha-terms a {
+  text-decoration: none;
+  color: #666;
+}
+
+.zcaptcha-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.2);
+  z-index: 9999;
+}
+
+.zcaptcha-label {
+  font-size: 20px;
+  line-height: 1.2;
+  text-align: left;
+  display: inline-block;
+  position: relative;
+  color: #606060;
+  height: 1.2em;
+  overflow: hidden;
+}
+
+/* Animation & Visibility Handling */
+.zcaptcha-label span {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  transform: scale(0.95);
+  white-space: nowrap;
+  transition: opacity 0.2s ease, transform 0.4s ease;
+  z-index: 0;
+}
+
+.zcaptcha-label .label-unverified {
+  opacity: 1;
+  transform: scale(1);
+  position: relative;
+  z-index: 1;
+}
+
+.zcaptcha-label.verified .label-unverified {
+  opacity: 0;
+  transform: scale(0.95);
+  position: absolute;
+  z-index: 0;
+}
+
+.zcaptcha-label .label-verified {
+  opacity: 0;
+  transform: scale(0.95);
+  position: absolute;
+  left: 0;
+  top: 0;
+  transition: opacity 0.2s ease, transform 0.3s ease;
+  white-space: nowrap;
+  z-index: 0;
+}
+
+.zcaptcha-label.verified .label-verified {
+  opacity: 1;
+  transform: scale(1);
+  position: relative;
+  z-index: 1;
+}
+
+
+.zcaptcha-label.verified {
+  animation: electricZap 1s ease-out;
+}
+
+@keyframes electricZap {
+  0%   { transform: scale(1) rotate(0deg); filter: brightness(1); }
+  10%  { transform: scale(1.1) rotate(-2deg); filter: brightness(2); }
+  20%  { transform: scale(0.9) rotate(1deg); filter: brightness(0.8); }
+  30%  { transform: scale(1.05) rotate(-1deg); filter: brightness(1.5); }
+  40%  { transform: scale(0.95) rotate(1deg); filter: brightness(0.9); }
+  50%  { transform: scale(1.1) rotate(-2deg); filter: brightness(2); }
+  60%  { transform: scale(0.9) rotate(2deg); filter: brightness(1); }
+  70%  { transform: scale(1.02) rotate(-1deg); filter: brightness(1.3); }
+  80%  { transform: scale(1) rotate(0deg); filter: brightness(1); }
+  100% { transform: scale(1) rotate(0deg); filter: brightness(1); }
+}
+
+@keyframes bounceIn {
+  0%   { transform: scale(0.5); opacity: 0.2; }
+  40%  { transform: scale(1.2); opacity: 1; }
+  60%  { transform: scale(0.85); }
+  80%  { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+.zcaptcha-checkmark {
+  opacity: 0;
+  transform: scale(0.5);
+  animation: bounceIn 1s ease-out forwards;
+}
+
+.zcaptcha-bouncer {
+  position: fixed;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: white;
+  border: 2px solid #00cccc;
+  border-radius: 8px;
+  padding: 12px;
+  width: 320px;
+  height: 80px;
+  z-index: 10000;
+  cursor: pointer;
+  box-shadow: 0 0 12px #0ff;
+}
+
+.zcaptcha-bouncer:hover {
+  box-shadow: 0 0 20px #0ff;
+}
+
+.zcaptcha-bouncer .zcaptcha-left {
+  font-size: 16px;
+  padding-left: 10px;
+  color: #606060;
+}
+
+.zcaptcha-bouncer .zcaptcha-checkbox {
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.zcaptcha-bouncer .zcaptcha-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.zcaptcha-bouncer .zcaptcha-logo {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 4px;
+}
+
+.zcaptcha-bouncer .zcaptcha-terms {
+  font-size: 11px;
+}
