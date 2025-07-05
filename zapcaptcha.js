@@ -18,8 +18,8 @@
  */
 
 // AT flags
-let consoleTamperDetection = true;
-let debuggerTimerDetection = true;
+let consoleTamperDetection = false;
+let debuggerTimerDetection = false;
 let devToolsDetection = true; // Doesn't throw
 let checksumVerification = false;
 
@@ -311,7 +311,9 @@ function sha256(str) {
               });
             });
           }
-          onSuccess?.();
+          setTimeout(() => {
+            onSuccess?.();
+          }, window.ZapCaptcha.submitDelay || 1000);
         });
       }, delay);
     },
