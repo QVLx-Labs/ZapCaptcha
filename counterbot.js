@@ -1,4 +1,32 @@
-// Configuration
+// Pest quick checks
+if (
+  navigator.webdriver ||
+  window._phantom ||
+  window.__nightmare ||
+  window.callPhantom
+) {
+  console.warn("Bot environment detected – access denied.");
+  document.body.innerHTML = "Access Denied.";
+  throw new Error("Blocked bot environment");
+}
+
+try {
+  let suspicious = 0;
+
+  if (navigator.plugins.length === 0) suspicious++;
+  if (!navigator.languages || navigator.languages.length === 0) suspicious++;
+
+  if (suspicious >= 2) {
+    console.warn("Fingerprint strongly resembles a headless or bot environment.");
+    document.body.innerHTML = "Access Denied.";
+    throw new Error("Multiple fingerprint anomalies");
+  }
+} catch (e) {
+  console.warn("Fingerprint check error:", e);
+  // Do not throw, allow page to load for safety due to mobile
+}
+
+// Trap config
 injectBotTraps({
   delayMs: 3000,
   count: 3
@@ -71,7 +99,7 @@ function injectBotTraps(config = {}) {
     }
     canvas.style.display = "none";
     canvas.setAttribute("data-fingerprint", "true");
-    canvas.__counterbot_injected = true; // ✅ Bonus tip: suppress future mutation logs
+    canvas.__counterbot_injected = true; // TODO: Suppress future mutation logs
     document.body.appendChild(canvas);
   }
 
