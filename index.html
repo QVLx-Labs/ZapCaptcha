@@ -29,11 +29,15 @@
   <noscript><link rel="stylesheet" href="https://zapcaptcha.com/zapcaptcha.css"></noscript>
 </head>
 <body>
+  <div class="hanging-tab">
+  <p id="notice">This site never saves or sells your data</p>
+  </div>
   <header>
   <div class="nav-container">
     <div class="voltage-wrapper">
       <div class="nav-title-wrapper">
         <div class="nav-title">ZapCaptcha</div>
+        
         <!-- SVG Party -->
         <svg class="zap-svg" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 234.6 61.3" preserveAspectRatio="none" xml:space="preserve">
           <defs>
@@ -69,10 +73,14 @@
   </div>
   </header>
   <main>
-  <p id="headline">
-  The 100% in-browser CAPTCHA for privacy and ease.
-  </p>
-  <br><br>
+    <section id="hero">
+      <h1>⚡The 100% in-browser CAPTCHA for privacy and ease.</h1>
+      <p class="subhead">No servers. No API keys. No registrations.</p>
+      <div class="cta-wrapper">
+       <a href="#" class="cta-button">Get Started Instantly</a>
+      </div>
+    </section>
+  <br>
   <!-- Example 1: Inline CAPTCHA -->
   <div class="example-box">
     <div class="heading-with-toggle">
@@ -84,6 +92,12 @@
       <dd id="codebox1" class="code-box">
         <div class="code-wrapper">
           <pre><code>
+<span class="highlight">HTML</span>
+&lt;div class="zcaptcha-box" data-zcap-timeout="5" data-target-id="example1_button"&gt;&lt;/div&gt;
+&lt;button class="zapcaptcha-button" id="example1_button"&gt;Verify Me&lt;/button&gt;
+&lt;div class="inline-result"&gt;&lt;/div&gt;
+<br>
+<span class="highlight">Javascript</span>
 const inlineTrigger = document.getElementById("example1_button");
       
 if (inlineTrigger) {
@@ -118,6 +132,15 @@ if (inlineTrigger) {
     <dd id="codebox2" class="code-box">
       <div class="code-wrapper">
         <pre><code>
+<span class="highlight">HTML</span>
+&lt;form id=&quot;demoForm&quot; action=&quot;success.html&quot; method=&quot;POST&quot;&gt;
+  &lt;div class=&quot;zcaptcha-box&quot; data-zcap-timeout=&quot;5&quot; data-target-id=&quot;example2_button&quot;&gt;&lt;/div&gt;
+  &lt;input type=&quot;text&quot; placeholder=&quot;Enter text here&quot; required /&gt;
+  &lt;br&gt;
+  &lt;button type=&quot;submit&quot; class=&quot;zapcaptcha-button&quot; id=&quot;example2_button&quot;&gt;Submit&lt;/button&gt;
+&lt;/form&gt;
+<br>
+<span class="highlight">Javascript</span>
 const formTrigger = document.getElementById("example2_button");
 
 if (formTrigger) {
