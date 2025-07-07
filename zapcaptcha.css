@@ -1,7 +1,8 @@
 .zname {
   margin: 0;
-  font-size: 13px;
+  font-size: 13px !important;
   height: auto;
+  color: black !important
 }
 
 .zcaptcha-box {
@@ -18,9 +19,9 @@
 }
 
 .zcaptcha-left {
-  font-size: 16px;
-  color: #606060;
-  padding-left: 8px;
+  font-size: 16px !important;
+  color: #606060 !important;
+  padding-left: 8px !important;
 }
 
 .zcaptcha-right {
@@ -30,13 +31,13 @@
 }
 
 .zcaptcha-logo {
-  width: 46px;
-  height: 46px;
+  width: 46px !important;
+  height: 46px !important;
   display: block;
 }
 
 .zcaptcha-terms {
-  font-size: 11px;
+  font-size: 11px !important;
   margin: 0;
   padding: 0;
 }
@@ -54,13 +55,13 @@
 }
 
 .zcaptcha-label {
-  font-size: 20px;
-  line-height: 1.2;
-  text-align: left;
+  font-size: 20px !important;
+  line-height: 1.2 !important;
+  text-align: left !important;
   display: inline-block;
   position: relative;
-  color: #606060;
-  height: 1.2em;
+  color: #606060 !important;
+  height: 1.2em !important;
   overflow: hidden;
 }
 
