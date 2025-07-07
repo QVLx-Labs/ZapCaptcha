@@ -25,8 +25,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <!-- <meta name="zap-integrity" content="sha256-5d8e35fa2710bf6fa87db28b791e0dd6aa79bb2f8bcaca57bd07cadb2eb86d2d"> -->
   <link rel="stylesheet" href="style.css" /> 
-  <link rel="preload" href="https://zapcaptcha.com/zapcaptcha.css" as="style" onload="this.rel='stylesheet'">
   <noscript><link rel="stylesheet" href="https://zapcaptcha.com/zapcaptcha.css"></noscript>
+  <meta name="zap-at-flags" content="all = false">
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' https://zapcaptcha.com;
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' https://zapcaptcha.com data: blob:;
+    object-src 'none';
+    connect-src 'self';
+    base-uri 'self';
+  ">
 </head>
 <body>
   <header>
@@ -61,7 +70,7 @@
           <div class="dot dot-5"></div>
         </div>
       </div>
-      <div id="company">By <a href="https://www.qvlc.com" style="color: black; text-decoration: underline;">QVLx Labs</a></div>
+      <div id="company">By <a href="https://www.qvlx.com">QVLx Labs</a></div>
     </div>
     <nav>
       <a href="features.html">Features</a>
@@ -71,7 +80,7 @@
   </header>
   <main>
     <section id="hero">
-      <h1><span id="bolt" style="cursor: pointer;">⚡</span>Free 100% in-browser CAPTCHA for voltaic privacy.</h1>
+      <h1><span id="bolt">⚡</span>Free 100% in-browser CAPTCHA for voltaic privacy.</h1>
       <p class="subhead">Super easy. No servers. No API keys. No registrations.</p>
       <div class="cta-wrapper">
        <a href="/docs/getting-started.html" class="cta-button">Get Started Instantly</a>
@@ -163,60 +172,15 @@ if (formTrigger) {
     <button type="submit" class="zapcaptcha-button" id="example2_button">Submit</button>
   </form>
   </main>
-  <script src="zapcaptcha.js"></script>
+  <script type="module" src="zapcaptcha.js"></script>
   <script src="counterbot.js"></script>
-  <script>
-    window.addEventListener("DOMContentLoaded", () => {
-      const inlineTrigger = document.getElementById("example1_button");
-      
-      if (inlineTrigger) {
-        inlineTrigger.addEventListener("click", (e) => {
-          e.preventDefault();
-          const result = inlineTrigger.closest(".example-box")?.querySelector(".inline-result");
-  
-          window.ZapCaptcha?.verify(inlineTrigger, () => {
-            if (result) result.textContent = "✅ Human verified!";
-          });
-        });
-      }
-      
-      const formTrigger = document.getElementById("example2_button");
-  
-      if (formTrigger) {
-        formTrigger.addEventListener("click", (e) => {
-          e.preventDefault();
-          const form = document.getElementById("demoForm");
-  
-          window.ZapCaptcha?.verify(formTrigger, () => {
-            form.submit();
-          });
-        });
-      }
-    });
-  </script>
-  <script>
-document.getElementById("bolt").addEventListener("click", () => {
-  const line1 = document.querySelector(".zap-svg .line-1");
-  const line2 = document.querySelector(".zap-svg .line-2");
-
-  if (!line1 || !line2) return;
-
-  // Clone the paths to restart animation
-  const clone1 = line1.cloneNode(true);
-  const clone2 = line2.cloneNode(true);
-
-  line1.replaceWith(clone1);
-  line2.replaceWith(clone2);
-});
-  </script>
+  <script src="init.js"></script>
 
 <footer>
 <div class="exclaim-tab">
   <p id="exclaim">This site never saves or sells your data</p>
   </div>
-  <div class="footer-content">
-  © 2025 QVLx Labs. All rights reserved.
-  </div>
+  <div class="footer-content">© 2025 QVLx Labs. All rights reserved.</div>
 </footer>
 </body>
 </html>
