@@ -7,9 +7,18 @@ html, body {
   max-width: 100%;
 }
 
+#bolt {
+  cursor: pointer; 
+}
+
 #company {
   color: black;
   font-weight: bold;
+}
+
+#company a {
+  color: black;
+  text-decoration: underline;
 }
 
 /*
@@ -410,7 +419,6 @@ dl dt a {
   font-weight: normal;
   color: black;
   text-decoration: none;
-  cursor: zoom-in;
   display: block;
   text-align: center;
 }
@@ -422,7 +430,6 @@ dl dt a {
   border-radius: 16px;
   padding: 4px 12px;
   margin: 0;
-  cursor: zoom-in;
   font-size: 18px;
   font-weight: bold;
   color: white;
