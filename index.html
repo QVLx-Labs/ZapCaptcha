@@ -29,15 +29,11 @@
   <noscript><link rel="stylesheet" href="https://zapcaptcha.com/zapcaptcha.css"></noscript>
 </head>
 <body>
-  <div class="hanging-tab">
-  <p id="notice">This site never saves or sells your data</p>
-  </div>
   <header>
   <div class="nav-container">
     <div class="voltage-wrapper">
       <div class="nav-title-wrapper">
         <div class="nav-title">ZapCaptcha</div>
-        
         <!-- SVG Party -->
         <svg class="zap-svg" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 234.6 61.3" preserveAspectRatio="none" xml:space="preserve">
           <defs>
@@ -65,19 +61,20 @@
           <div class="dot dot-5"></div>
         </div>
       </div>
+      <div id="company">By <a href="https://www.qvlc.com" style="color: black; text-decoration: underline;">QVLx Labs</a></div>
     </div>
     <nav>
-      <a href="/">Features</a>
+      <a href="features.html">Features</a>
       <a href="/docs/">Documentation</a>
     </nav>
   </div>
   </header>
   <main>
     <section id="hero">
-      <h1>⚡The 100% in-browser CAPTCHA for privacy and ease.</h1>
-      <p class="subhead">No servers. No API keys. No registrations.</p>
+      <h1><span id="bolt" style="cursor: pointer;">⚡</span>Free 100% in-browser CAPTCHA for voltaic privacy.</h1>
+      <p class="subhead">Super easy. No servers. No API keys. No registrations.</p>
       <div class="cta-wrapper">
-       <a href="#" class="cta-button">Get Started Instantly</a>
+       <a href="/docs/getting-started.html" class="cta-button">Get Started Instantly</a>
       </div>
     </section>
   <br>
@@ -197,8 +194,29 @@ if (formTrigger) {
       }
     });
   </script>
+  <script>
+document.getElementById("bolt").addEventListener("click", () => {
+  const line1 = document.querySelector(".zap-svg .line-1");
+  const line2 = document.querySelector(".zap-svg .line-2");
+
+  if (!line1 || !line2) return;
+
+  // Clone the paths to restart animation
+  const clone1 = line1.cloneNode(true);
+  const clone2 = line2.cloneNode(true);
+
+  line1.replaceWith(clone1);
+  line2.replaceWith(clone2);
+});
+  </script>
+
 <footer>
-  © 2025 <a href="https://www.qvlx.com" style="color: white; text-decoration: underline;">QVLx Labs</a>. All rights reserved.
+<div class="exclaim-tab">
+  <p id="exclaim">This site never saves or sells your data</p>
+  </div>
+  <div class="footer-content">
+  © 2025 QVLx Labs. All rights reserved.
+  </div>
 </footer>
 </body>
 </html>
