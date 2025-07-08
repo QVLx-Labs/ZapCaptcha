@@ -1,10 +1,3 @@
-.zname {
-  margin: 0;
-  font-size: 13px !important;
-  height: auto;
-  color: black !important
-}
-
 .zcaptcha-box {
   display: flex;
   justify-content: space-between;
@@ -190,4 +183,44 @@
 
 .zcaptcha-bouncer .zcaptcha-terms {
   font-size: 11px;
+}
+
+.zname {
+  all: unset;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+  color: black !important;
+  display: inline !important;
+  font-family: inherit !important;
+  line-height: normal !important;
+}
+
+/* Legacy <a> fallback (in case older templates still inject <a>) */
+html body div.zcaptcha-box div.zcaptcha-right p.zname a.zcap-brand-link,
+html body div.zcaptcha-bouncer div.zcaptcha-right p.zname a.zcap-brand-link {
+  color: black !important;
+  text-decoration: none !important;
+  font-size: 13px !important;
+  font-family: inherit !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  display: inline !important;
+  line-height: normal !important;
+  forced-color-adjust: none !important;
+}
+
+/* Span-based link replacement for CSSOM */
+.zcap-brand-text {
+  all: unset;
+  display: inline-block;
+  color: black !important;
+  font-size: 13px !important;
+  font-family: inherit !important;
+  line-height: normal !important;
+  text-decoration: none !important;
+  cursor: pointer;
+  forced-color-adjust: none !important;
 }
