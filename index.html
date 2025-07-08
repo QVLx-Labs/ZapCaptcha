@@ -21,16 +21,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>ZapCaptcha Demo</title>
+  <title>ZapCaptcha Home</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <!-- <meta name="zap-integrity" content="sha256-5d8e35fa2710bf6fa87db28b791e0dd6aa79bb2f8bcaca57bd07cadb2eb86d2d"> -->
   <link rel="stylesheet" href="style.css" /> 
   <noscript><link rel="stylesheet" href="https://zapcaptcha.com/zapcaptcha.css"></noscript>
-  <meta name="zap-at-flags" content="all = false">
+  <meta name="zap-at-flags" content="all = true">
+  <meta name="csp-nonce" content="abc123xyz">
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     script-src 'self' https://zapcaptcha.com;
-    style-src 'self' 'unsafe-inline';
+    style-src 'self' 'nonce-abc123xyz';
     img-src 'self' https://zapcaptcha.com data: blob:;
     object-src 'none';
     connect-src 'self';
