@@ -507,6 +507,8 @@ function sha256(str) {
   
     // Create new message
     const msg = document.createElement("div");
+    msg.setAttribute("aria-live", "assertive");
+    msg.setAttribute("role", "alert");
     msg.className = "zcap-timeout-message";
     msg.textContent = "Captcha expired. Please retry.";
   
@@ -661,6 +663,7 @@ function sha256(str) {
           const label = box.querySelector(".zcaptcha-label");
           if (label) {
             label.classList.remove("verified");
+            label.setAttribute("aria-checked", "false");
             requestAnimationFrame(() => {
               const canvas = box.querySelector("canvas");
               const storeFp = useCanvasMode && canvas ? storeZapCaptchaFingerprint(canvas) : Promise.resolve();
@@ -668,6 +671,7 @@ function sha256(str) {
               storeFp.then(() => {
                 requestAnimationFrame(() => {
                   label.classList.add("verified");
+                  label.setAttribute("aria-checked", "true");
                   dispatchIfLegit(box, new CustomEvent("zapcaptcha-verified", {
                     detail: { timestamp: Date.now(), id: getStorageName(box) }
                   }));
@@ -739,11 +743,16 @@ function sha256(str) {
         const uuid = crypto.randomUUID?.() || Math.random().toString(36).slice(2, 10);
         box.dataset.zcapId = `zcid_${uuid}`;
       }
+      
+      // Support compact mode
+      if (box.dataset.size === "compact") {
+        box.classList.add("zcaptcha-compact");
+      }
   
       // Wipe and inject standardized structure
       box.innerHTML = `
         <div class="zcaptcha-left">
-          <p class="zcaptcha-label">
+          <p class="zcaptcha-label" role="checkbox" aria-checked="false" tabindex="0">
             <span class="label-unverified">🔒 Humans only</span>
             <span class="label-verified">✅ I am human</span>
           </p>
@@ -761,6 +770,18 @@ function sha256(str) {
       if (brand) {
         brand.addEventListener("click", () => {
           window.open(brand.getAttribute("data-href"), "_blank", "noopener");
+        });
+      }
+      
+      const label = box.querySelector(".zcaptcha-label");
+      if (label) {
+        label.addEventListener("keydown", e => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            const triggerId = box.getAttribute("data-target-id");
+            const triggerEl = document.getElementById(triggerId);
+            if (triggerEl) ZapCaptcha.verify(triggerEl);
+          }
         });
       }
     });
