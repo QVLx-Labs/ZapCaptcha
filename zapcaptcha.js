@@ -1,5 +1,5 @@
 /*!
- * ZapCaptcha – Human-first cryptographic CAPTCHA system
+ * ZapCaptcha : Human-first cryptographic CAPTCHA system
  * -----------------------------------------------------
  * Designed and developed by QVLx Labs.
  * https://www.qvlx.com
@@ -28,7 +28,9 @@ let functionTamperCheck = false;
 let canvasSpoofingCheck = false;
 let headlessBrowserCheck = false;
 let cssOverrideDetection = false;
+
 let viewportConfined = true;
+let canvasMode = true;
 
 // Supports numerial (0/1) or string boolean (false/true)
 (function configureZapFlags() {
@@ -60,15 +62,16 @@ let viewportConfined = true;
   // Apply per-flag overrides or fallback to global value
   consoleTamperDetection = flags.console ?? globalSet ?? consoleTamperDetection;
   debuggerTimerDetection = flags.debugger ?? globalSet ?? debuggerTimerDetection;
-  devToolsDetection     = flags.devtools ?? globalSet ?? devToolsDetection;
-  checksumJS  = flags.checksumJS ?? globalSet ?? checksumJS;
-  checksumCSS  = flags.checksumCSS ?? globalSet ?? checksumCSS;
-  clickBlockEnforcement   = flags.clickblock ?? globalSet ?? clickBlockEnforcement;
-  functionTamperCheck   = flags.funcTamper ?? globalSet ?? functionTamperCheck;
-  canvasSpoofingCheck   = flags.canvasCheck ?? globalSet ?? canvasSpoofingCheck;
-  headlessBrowserCheck   = flags.headlessCheck ?? globalSet ?? headlessBrowserCheck;
-  cssOverrideDetection   = flags.cssOverride ?? globalSet ?? cssOverrideDetection;
-  viewportConfined        = flags.viewportConfined ?? true;
+  devToolsDetection = flags.devtools ?? globalSet ?? devToolsDetection;
+  checksumJS = flags.checksumjs ?? globalSet ?? checksumJS;
+  checksumCSS = flags.checksumcss ?? globalSet ?? checksumCSS;
+  clickBlockEnforcement = flags.clickblock ?? globalSet ?? clickBlockEnforcement;
+  functionTamperCheck = flags.functamper ?? globalSet ?? functionTamperCheck;
+  canvasSpoofingCheck = flags.canvascheck ?? globalSet ?? canvasSpoofingCheck;
+  headlessBrowserCheck = flags.headlesscheck ?? globalSet ?? headlessBrowserCheck;
+  cssOverrideDetection = flags.cssoverride ?? globalSet ?? cssOverrideDetection;
+  viewportConfined = flags.viewportconfined ?? true;
+  canvasMode = flags.canvasmode ?? true;
 })();
 
 // Reload page on back/forward navigation to ensure CAPTCHA state resets
@@ -76,20 +79,28 @@ window.addEventListener("pageshow", function (e) {
   if (e.persisted) location.reload();
 });
 
+////////////////////////////////////////////////////////////////////////////////////
+// Note: I think I've fixed the viewPort bug on mobile devices with scalable on and
+//       canvas mode on. So this code is scheduled for deprecation. Hanging onto it
+//       until time proves that the system is stable.
+//
 // Eventually I'll find a better way for this. (TODO)
-const viewportMeta = document.querySelector('meta[name="viewport"]');
-const notUserScalable = viewportMeta && /user-scalable\s*=\s*no/i.test(viewportMeta.content);
+// const viewportMeta = document.querySelector('meta[name="viewport"]');
+// const notUserScalable = viewportMeta && /user-scalable\s*=\s*no/i.test(viewportMeta.content);
 
-if (!notUserScalable) { // Seems like a double negative, I know I know. Not pretty but we strive for the negative in this case
-  console.warn("ZapCaptcha requires viewport meta tag 'user-scalable=no' to ensure layout stability on mobile. Falling back to DOM mode.");
-}
+// if (!notUserScalable) {
+//  console.warn("ZapCaptcha requires viewport meta tag 'user-scalable=no' to ensure layout stability on mobile. Falling back to DOM mode.");
+// }
+
+// Handle mobile devices in the most secure way for now
+// const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+// const useCanvasMode = !isMobile || (isMobile && notUserScalable);
+////////////////////////////////////////////////////////////////////////////////////
+
+let useCanvasMode = canvasMode; // Canvas mode vs DOM mode is configurable via metatag
 
 // Disable all registered buttons until CAPTCHA loads
 document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.disabled = true);
-
-// Handle mobile devices in the most secure way for now
-const isMobile = /Mobi|Android/i.test(navigator.userAgent);
-const useCanvasMode = !isMobile || (isMobile && notUserScalable);
 
 // Set up a CSSOM sheet
 const zapStyleSheet = (() => {
@@ -552,6 +563,14 @@ function sha384(str) {
     }
   }
 
+  // This function only handles how timeout even happens and
+  // the resultant expiration. TODO: make expiration configurable
+  // 
+  // FYI:
+  // Timeout is set by data field in meta tag or default 1 min.
+  // Timeout can happen in two cases:
+  //   1. Challenge not completed in the set time
+  //   2. Challenge completed but sits for a time
   function setTimeoutWatcher(box, triggerEl) {
     const timeoutAttr = box?.getAttribute("data-zcap-timeout");
     const timeoutSec = parseInt(timeoutAttr, 10);
@@ -793,6 +812,7 @@ function sha384(str) {
     });
   });
 
+  // Need to lock up the UI during challenge
   function disableUI() {
     const overlay = document.createElement("div");
     overlay.className = "zcaptcha-overlay";
@@ -902,6 +922,8 @@ function sha384(str) {
     padding: 0;
   `);
 
+  // DOM mode is provided for legacy system support
+  // Not recommended as a first option on most systems
   function launchZcaptchaDOM(triggerEl, callback) {
     const box = document.createElement("div");
     box.className = "zcaptcha-bouncer";
@@ -918,29 +940,32 @@ function sha384(str) {
       </div>
     `;
     document.body.appendChild(box);
-    animateBox(box, triggerEl, callback);
+    animateBox(box, triggerEl, callback); // The bouncer challenge
   }
 
+  // DOM mode only. I pulled out the game logic into this function.
   function animateBox(box, triggerEl, callback) {
     const boundsWidth = document.documentElement.clientWidth;
-    let boundsHeight;
+    let boundsHeight = document.documentElement.clientHeight;
     const width = box.offsetWidth;
     const height = box.offsetHeight;
+    const scrollLeft = window.scrollX;
+    const scrollTop = window.scrollY;
     
+    let visibleWidth, visibleHeight;
+
+    // Turns out some older Android WebViews don't support visualViewport
     if (viewportConfined) {
-       boundsHeight = window.innerHeight;
+      visibleWidth = window.visualViewport?.width || window.innerWidth;
+      visibleHeight = window.visualViewport?.height || window.innerHeight;
     } else {
-       boundsHeight = document.documentElement.clientHeight;
+      visibleWidth = document.documentElement.scrollWidth;
+      visibleHeight = document.documentElement.scrollHeight;
     }
 
     let x, y;
     
-    if (viewportConfined) {
-      const scrollLeft = window.scrollX;
-      const scrollTop = window.scrollY;
-      const visibleWidth = window.innerWidth;
-      const visibleHeight = window.innerHeight;
-    
+    if (viewportConfined) {    
       x = scrollLeft + getCryptoFloat(0, visibleWidth - width);
       y = scrollTop + getCryptoFloat(0, visibleHeight - height);
     } else {
@@ -965,8 +990,8 @@ function sha384(str) {
       y += dy;
 
       if (viewportConfined) {
-        if (x <= scrollLeft || x + canvas.width >= scrollLeft + visibleWidth) dx = -dx;
-        if (y <= scrollTop || y + canvas.height >= scrollTop + visibleHeight) dy = -dy;
+        if (x <= scrollLeft || x + box.offsetWidth >= scrollLeft + visibleWidth) dx = -dx;
+        if (y <= scrollTop || y + box.offsetHeight >= scrollTop + visibleHeight) dy = -dy;
       } else {
         if (x <= 0 || x >= boundsWidth - width) dx = -dx;
         if (y <= 0 || y >= boundsHeight - height) dy = -dy;
@@ -1004,10 +1029,12 @@ function sha384(str) {
       if (overlay) fadeAndRemove(overlay);
       clearTimeoutWatcher(triggerEl);
       removeTimeoutMessage(box);
+      setTimeoutWatcher(document.querySelector(`.zcaptcha-box[data-target-id="${triggerEl.id}"]`), triggerEl);
       callback?.();
     });
   }
 
+  // This is obvious but, canvas mode only
   function launchZcaptchaCanvas(triggerEl, callback) {
     const canvas = document.createElement("canvas");
     canvas.width = window.innerWidth < 330 ? 280 : window.innerWidth < 360 ? 300 : 330;
@@ -1028,8 +1055,17 @@ function sha384(str) {
       const rect = document.documentElement.getBoundingClientRect();
       const scrollLeft = window.scrollX;
       const scrollTop = window.scrollY;
-      const visibleWidth = window.innerWidth;
-      const visibleHeight = window.innerHeight;
+      
+      let visibleWidth, visibleHeight;
+      
+      if (viewportConfined) {
+        visibleWidth = window.visualViewport?.width || window.innerWidth;
+        visibleHeight = window.visualViewport?.height || window.innerHeight;
+      } else {
+        visibleWidth = document.documentElement.scrollWidth;
+        visibleHeight = document.documentElement.scrollHeight;
+      }
+      
       if (viewportConfined) {
         x = scrollLeft + getCryptoFloat(0, visibleWidth - canvas.width);
         y = scrollTop + getCryptoFloat(0, visibleHeight - canvas.height);
@@ -1136,6 +1172,8 @@ function sha384(str) {
   preload.href = "https://zapcaptcha.com/zap.svg";
   document.head.appendChild(preload);
   
+  // This trick doesn't seem to work well on
+  // modern browsers. I may deprecate this soon.
   (function enforceConsoleSecurity() {
     if (!devToolsDetection) { return; }
     // Trap: Image .id getter trick
