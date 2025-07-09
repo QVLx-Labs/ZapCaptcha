@@ -1,2 +1,2 @@
 # ZapCaptcha
-A serverless, pure frontend captcha system
+A serverless, private, security-focused CAPTCHA system for the modern web
