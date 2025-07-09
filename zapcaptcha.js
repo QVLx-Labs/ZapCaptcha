@@ -17,7 +17,7 @@
  * security@qvlx.com
  */
 
-// AT flags
+// Available flags
 let consoleTamperDetection = false;
 let debuggerTimerDetection = false;
 let devToolsDetection = false; // Doesn't throw when true, just warns
@@ -28,10 +28,11 @@ let functionTamperCheck = false;
 let canvasSpoofingCheck = false;
 let headlessBrowserCheck = false;
 let cssOverrideDetection = false;
+let viewportConfined = true;
 
 // Supports numerial (0/1) or string boolean (false/true)
-(function configureAntiTamperFlags() {
-  const meta = document.querySelector('meta[name="zap-at-flags"]');
+(function configureZapFlags() {
+  const meta = document.querySelector('meta[name="zap-flags"]');
   if (!meta || !meta.content) return;
 
   const pairs = meta.content.split(",");
@@ -49,7 +50,7 @@ let cssOverrideDetection = false;
     else continue;
 
     // Supports setting all on or off at once
-    if (rawKey === "all") {
+    if (rawKey === "allsec") {
       globalSet = val;
     } else {
       flags[rawKey] = val;
@@ -67,17 +68,28 @@ let cssOverrideDetection = false;
   canvasSpoofingCheck   = flags.canvasCheck ?? globalSet ?? canvasSpoofingCheck;
   headlessBrowserCheck   = flags.headlessCheck ?? globalSet ?? headlessBrowserCheck;
   cssOverrideDetection   = flags.cssOverride ?? globalSet ?? cssOverrideDetection;
+  viewportConfined        = flags.viewportConfined ?? true;
 })();
 
+// Reload page on back/forward navigation to ensure CAPTCHA state resets
 window.addEventListener("pageshow", function (e) {
   if (e.persisted) location.reload();
 });
 
-// Eventually I'll solve this issue. TODO
-const meta = document.querySelector('meta[name="viewport"]');
-if (!meta || !/user-scalable\s*=\s*no/i.test(meta.content)) {
-  console.warn("ZapCaptcha requires viewport meta tag with 'user-scalable=no' to ensure layout stability on mobile. Falling back to DOM mode, which is less secure and bot-proof.");
+// Eventually I'll find a better way for this. (TODO)
+const viewportMeta = document.querySelector('meta[name="viewport"]');
+const notUserScalable = viewportMeta && /user-scalable\s*=\s*no/i.test(viewportMeta.content);
+
+if (!notUserScalable) { // Seems like a double negative, I know I know. Not pretty but we strive for the negative in this case
+  console.warn("ZapCaptcha requires viewport meta tag 'user-scalable=no' to ensure layout stability on mobile. Falling back to DOM mode.");
 }
+
+// Disable all registered buttons until CAPTCHA loads
+document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.disabled = true);
+
+// Handle mobile devices in the most secure way for now
+const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+const useCanvasMode = !isMobile || (isMobile && notUserScalable);
 
 // Set up a CSSOM sheet
 const zapStyleSheet = (() => {
@@ -124,13 +136,13 @@ let storedZapFingerprint = null;
   observer.observe(document.head, { childList: true });
 })();
 
-// Compute SHA-256 hash of canvas pixels
+// Compute SHA-384 hash of canvas pixels
 function getCanvasPixelFingerprint(canvas) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return Promise.resolve("nullctx");
 
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  return crypto.subtle.digest("SHA-256", pixels.buffer).then(hashBuffer => {
+  return crypto.subtle.digest("SHA-384", pixels.buffer).then(hashBuffer => {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
   });
@@ -150,9 +162,9 @@ function validateZapCaptchaFingerprint(canvas) {
   return getCanvasPixelFingerprint(canvas).then(currentFp => {
     const isMatch = zapCanvasFingerprint === currentFp;
     if (!isMatch) {
-      console.warn("❌ [ZapCaptcha] Canvas fingerprint mismatch!");
+      console.warn("*** ZapCaptcha canvas fingerprint mismatch!");
     } else {
-      console.log("✅ [ZapCaptcha] Canvas fingerprint verified.");
+      console.log("ZapCaptcha canvas fingerprint verified.");
     }
     return isMatch;
   });
@@ -210,7 +222,7 @@ function insertZapRule(selector, rules) {
   // Block copy event
   document.addEventListener("copy", function (e) {
     e.preventDefault();
-    alert("🔒 Copying is disabled on this page.");
+    alert("Zapcaptha security: Copying is disabled on this page.");
   });
 })();
 
@@ -259,13 +271,13 @@ function insertZapRule(selector, rules) {
 
   if (block) {
     document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha: Headless browser blocked.</h1>";
-    throw new Error("❌ ZapCaptcha: Headless browser detected");
+    throw new Error("ZapCaptcha security: Headless browser detected");
   }
 
   // Optional: stealth fingerprint mismatch (but don’t throw on failure)
   navigator.permissions?.query({ name: 'notifications' }).then(p => {
     if (!isMobile && Notification.permission === 'denied' && p.state === 'prompt') {
-      console.warn("⚠️ ZapCaptcha: Possible stealth headless environment.");
+      console.warn("ZapCaptcha security: Possible stealth headless environment.");
     }
   });
 })();
@@ -286,16 +298,16 @@ function insertZapRule(selector, rules) {
 (function checkZapCaptchaJS() {
   if (!checksumJS) { return; }
   const meta = document.querySelector('meta[name="zap-js-integrity"]');
-  if (!meta || !meta.content || !meta.content.startsWith("sha256-")) return;
+  if (!meta || !meta.content || !meta.content.startsWith("sha384-")) return;
 
   const expected = meta.content.trim();
 
   function performCheck() {
     fetch("zapcaptcha.js")
       .then(r => r.ok ? r.text() : Promise.reject("Failed to fetch zapcaptcha.js"))
-      .then(text => sha256(text))
+      .then(text => sha384(text))
       .then(hash => {
-        const actual = "sha256-" + hash;
+        const actual = "sha384-" + hash;
         if (actual !== expected) {
           document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Integrity Error</h1>";
           throw new Error(`zapcaptcha.js hash mismatch\nExpected: ${expected}\nActual: ${actual}`);
@@ -316,7 +328,7 @@ function insertZapRule(selector, rules) {
   if (!checksumCSS) return;
 
   const meta = document.querySelector('meta[name="zap-css-integrity"]');
-  if (!meta || !meta.content || !meta.content.startsWith("sha256-")) return;
+  if (!meta || !meta.content || !meta.content.startsWith("sha384-")) return;
 
   const expected = meta.content.trim();
   const cssHref = "zapcaptcha.css";
@@ -328,9 +340,9 @@ function insertZapRule(selector, rules) {
 
     fetch(cssHref)
       .then(r => r.ok ? r.text() : Promise.reject("Failed to fetch zapcaptcha.css"))
-      .then(text => sha256(text))
+      .then(text => sha384(text))
       .then(hash => {
-        const actual = "sha256-" + hash;
+        const actual = "sha384-" + hash;
         if (actual !== expected) {
           document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha CSS Integrity Error</h1>";
           throw new Error(`zapcaptcha.css hash mismatch\nExpected: ${expected}\nActual: ${actual}`);
@@ -356,10 +368,10 @@ function insertZapRule(selector, rules) {
   }, 1000);
 })();
 
-// SHA-256 Helper
-function sha256(str) {
+// SHA-384 Helper
+function sha384(str) {
   const buf = new TextEncoder().encode(str);
-  return crypto.subtle.digest("SHA-256", buf).then(hash => {
+  return crypto.subtle.digest("SHA-384", buf).then(hash => {
     return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
   });
 }
@@ -383,10 +395,6 @@ function sha256(str) {
   const timeoutMap = new WeakMap();
   const signalMap = new WeakMap();
   
-  const isMobile = /Mobi|Android/i.test(navigator.userAgent);
-  const viewportMeta = document.querySelector('meta[name="viewport"]');
-  const notUserScalable = viewportMeta && /user-scalable\s*=\s*no/i.test(viewportMeta.content);
-  const useCanvasMode = !isMobile || (isMobile && notUserScalable);
   const NONCE_COOKIE_PREFIX = "zc_";
 
   function getStorageName(box) {
@@ -418,14 +426,14 @@ function sha256(str) {
   
   // Oversimplified and not secure. Going to replace.
   function hmacSync(message, key) {
-    return sha256(`${key}:${message}`);
+    return sha384(`${key}:${message}`);
   }
   
   // Production-ready function
   async function hmac(message, key) {
     const enc = new TextEncoder();
     const cryptoKey = await crypto.subtle.importKey(
-      "raw", enc.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+      "raw", enc.encode(key), { name: "HMAC", hash: "SHA-384" }, false, ["sign"]
     );
     const sig = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(message));
     return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -623,8 +631,8 @@ function sha256(str) {
           if (useCanvasMode && canvas) {
             return validateZapCaptchaFingerprint(canvas).then(isValid => {
               if (canvasSpoofingCheck && !isValid) {
-                document.body.innerHTML = "❌ Canvas tampering detected.";
-                throw new Error("Canvas fingerprint validation failed");
+                document.body.innerHTML = "Canvas tampering detected.";
+                throw new Error("Zapcaptcha: Canvas fingerprint validation failed");
               } else {
                 return onSuccess?.();
               }
@@ -722,8 +730,6 @@ function sha256(str) {
 
   // Freeze ZapCaptcha Object
   Object.freeze(window.ZapCaptcha);
-  Object.freeze(window.ZapCaptcha.verify);
-  Object.freeze(window.ZapCaptcha.isVerified);
   Object.defineProperty(window, 'ZapCaptcha', { writable: false, configurable: false });
 
   // Re-enable UI Buttons and standardize captcha boxes
@@ -754,7 +760,7 @@ function sha256(str) {
         <div class="zcaptcha-left">
           <p class="zcaptcha-label" role="checkbox" aria-checked="false" tabindex="0">
             <span class="label-unverified">🔒 Humans only</span>
-            <span class="label-verified">✅ I am human</span>
+            <span class="label-verified" aria-live="polite">✅ I am human</span>
           </p>
         </div>
         <div class="zcaptcha-right">
@@ -847,7 +853,7 @@ function sha256(str) {
       trap.autocomplete = "off";
       trap.tabIndex = -1;
       trap.addEventListener("change", () => {
-        alert("❌ Bot activity detected");
+        alert("Zapcathca: Bot activity detected");
         document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>Access Denied</h1>";
         throw new Error("Honeypot triggered");
       });
@@ -917,12 +923,31 @@ function sha256(str) {
 
   function animateBox(box, triggerEl, callback) {
     const boundsWidth = document.documentElement.clientWidth;
-    const boundsHeight = document.documentElement.clientHeight;
+    let boundsHeight;
     const width = box.offsetWidth;
     const height = box.offsetHeight;
+    
+    if (viewportConfined) {
+       boundsHeight = window.innerHeight;
+    } else {
+       boundsHeight = document.documentElement.clientHeight;
+    }
 
-    let x = getCryptoFloat(0, boundsWidth - width);
-    let y = getCryptoFloat(0, boundsHeight - height);
+    let x, y;
+    
+    if (viewportConfined) {
+      const scrollLeft = window.scrollX;
+      const scrollTop = window.scrollY;
+      const visibleWidth = window.innerWidth;
+      const visibleHeight = window.innerHeight;
+    
+      x = scrollLeft + getCryptoFloat(0, visibleWidth - width);
+      y = scrollTop + getCryptoFloat(0, visibleHeight - height);
+    } else {
+       x = getCryptoFloat(0, boundsWidth - width);
+       y = getCryptoFloat(0, boundsHeight - height);
+    }
+
     let dx = getCryptoFloat(1.5, 3.5);
     let dy = getCryptoFloat(1.5, 3.5);
     let jitterCounter = 0;
@@ -939,8 +964,13 @@ function sha256(str) {
       x += dx;
       y += dy;
 
-      if (x <= 0 || x >= boundsWidth - width) dx = -dx;
-      if (y <= 0 || y >= boundsHeight - height) dy = -dy;
+      if (viewportConfined) {
+        if (x <= scrollLeft || x + canvas.width >= scrollLeft + visibleWidth) dx = -dx;
+        if (y <= scrollTop || y + canvas.height >= scrollTop + visibleHeight) dy = -dy;
+      } else {
+        if (x <= 0 || x >= boundsWidth - width) dx = -dx;
+        if (y <= 0 || y >= boundsHeight - height) dy = -dy;
+      }
 
       box.style.left = `${x}px`;
       box.style.top = `${y}px`;
@@ -994,8 +1024,20 @@ function sha256(str) {
     zapImage.src = "https://zapcaptcha.com/zap.svg";
 
     zapImage.onload = function () {
-      let x = getCryptoFloat(0, Math.max(0, window.innerWidth - canvas.width));
-      let y = getCryptoFloat(0, Math.max(0, window.innerHeight - canvas.height));
+      let x, y;
+      const rect = document.documentElement.getBoundingClientRect();
+      const scrollLeft = window.scrollX;
+      const scrollTop = window.scrollY;
+      const visibleWidth = window.innerWidth;
+      const visibleHeight = window.innerHeight;
+      if (viewportConfined) {
+        x = scrollLeft + getCryptoFloat(0, visibleWidth - canvas.width);
+        y = scrollTop + getCryptoFloat(0, visibleHeight - canvas.height);
+      } else {
+        x = getCryptoFloat(0, Math.max(0, document.documentElement.clientWidth - canvas.width));
+        y = getCryptoFloat(0, Math.max(0, window.innerHeight - canvas.height));
+      }
+
       let dx = getCryptoFloat(1.5, 3.5);
       let dy = getCryptoFloat(1.5, 3.5);
       let jitterCounter = 0;
@@ -1042,8 +1084,13 @@ function sha256(str) {
         x += dx;
         y += dy;
 
-        if (x <= 0 || x + canvas.width >= window.innerWidth) dx = -dx;
-        if (y <= 0 || y + canvas.height >= window.innerHeight) dy = -dy;
+        if (viewportConfined) {
+          if (x <= scrollLeft || x >= scrollLeft + visibleWidth - canvas.width) dx = -dx;
+          if (y <= scrollTop || y >= scrollTop + visibleHeight - canvas.height) dy = -dy;
+        } else {
+          if (x <= 0 || x + canvas.width >= window.innerWidth) dx = -dx;
+          if (y <= 0 || y + canvas.height >= window.innerHeight) dy = -dy;
+        }
 
         canvas.style.left = `${x}px`;
         canvas.style.top = `${y}px`;
