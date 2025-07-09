@@ -1,3 +1,22 @@
+/*!
+ * ZapCaptcha – Human-first cryptographic CAPTCHA system
+ * -----------------------------------------------------
+ * Designed and developed by QVLx Labs.
+ * https://www.qvlx.com
+ *
+ * © 2024–2025 QVLx Labs. All rights reserved.
+ * ZapCaptcha is a proprietary CAPTCHA system for front-end validation without backend server reliance.
+ *
+ * This software is licensed for non-commercial use and authorized commercial use only.
+ * Unauthorized reproduction, redistribution, or tampering is strictly prohibited.
+ *
+ * ZapCaptcha includes anti-bot measures, DOM mutation traps, and telemetry hooks.
+ * Attempted bypass, obfuscation, or automation is a violation of applicable laws and terms of use.
+ *
+ * To license ZapCaptcha for enterprise/commercial use, contact:
+ * security@qvlx.com
+ */
+
 // Pest quick checks
 if (
   navigator.webdriver ||
