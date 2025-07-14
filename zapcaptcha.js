@@ -17,62 +17,117 @@
  * security@qvlx.com
  */
 
-// Available flags
-let consoleTamperDetection = false;
-let debuggerTimerDetection = false;
-let devToolsDetection = false; // Doesn't throw when true, just warns
-let checksumJS = false;
-let checksumCSS = false;
-let clickBlockEnforcement = false;
-let functionTamperCheck = false;
-let canvasSpoofingCheck = false;
-let headlessBrowserCheck = false;
-let cssOverrideDetection = false;
-
-let viewportConfined = true;
-let canvasMode = true;
+//zapLockout("Canvas tampering"); // DEBUGGING ONLY
 
 // Supports numerial (0/1) or string boolean (false/true)
 (function configureZapFlags() {
   const meta = document.querySelector('meta[name="zap-flags"]');
-  if (!meta || !meta.content) return;
+  const content = meta?.content ?? "";
 
-  const pairs = meta.content.split(",");
+  const pairs = content.split(",");
   const flags = {};
-
   let globalSet = null;
 
   for (const pair of pairs) {
-    const [rawKey, rawVal] = pair.split("=").map(s => s.trim().toLowerCase());
+    const [rawKey, rawVal] = pair.split("=").map(s => s.trim());
     if (!rawKey || !rawVal) continue;
-
-    let val;
-    if (rawVal === "true" || rawVal === "1") val = true;
-    else if (rawVal === "false" || rawVal === "0") val = false;
-    else continue;
-
-    // Supports setting all on or off at once
-    if (rawKey === "allsec") {
+  
+    const key = rawKey.toLowerCase(); // Use lowercase for matching, map it to camelCase
+    const val = (rawVal.toLowerCase() === "true" || rawVal === "1") ? true :
+                (rawVal.toLowerCase() === "false" || rawVal === "0") ? false : null;
+  
+    if (val === null) continue;
+  
+    if (key === "allsec") {
       globalSet = val;
     } else {
-      flags[rawKey] = val;
+      flags[key] = val;
     }
   }
+  
+  // Define the final immutable flag object
+  const finalFlags = Object.freeze({
+    checksumJS:              flags["checksumjs"]              ?? globalSet ?? false,
+    checksumCSS:             flags["checksumcss"]             ?? globalSet ?? false,
+    clickBlockEnforcement:   flags["clickblockenforcement"]   ?? globalSet ?? false,
+    functionTamperCheck:     flags["functiontampercheck"]     ?? globalSet ?? false,
+    canvasSpoofingCheck:     flags["canvasspoofingcheck"]     ?? globalSet ?? false,
+    headlessBrowserCheck:    flags["headlessbrowsercheck"]    ?? globalSet ?? false,
+    cssOverrideDetection:    flags["cssoverridedetection"]    ?? globalSet ?? false,
+    iframeEmbedCheck:        flags["iframeembedcheck"]        ?? globalSet ?? false,
+    iframeInjectCheck:       flags["iframeinjectcheck"]       ?? globalSet ?? false,
+    torCheck:                flags["torcheck"]                ?? globalSet ?? false,
+    vpnCheck:                flags["vpncheck"]                ?? globalSet ?? false,
+    lockShadow:              flags["lockshadow"]              ?? globalSet ?? false,
+    monkeyPatching:          flags["monkeypatching"]          ?? globalSet ?? false,
+  
+    viewportConfined:        flags["viewportconfined"]        ?? true,
+    canvasMode:              flags["canvasmode"]              ?? true,
+    consoleWarnings:         flags["consolewarnings"]         ?? true,
+    lockoutsEnabled:         flags["lockoutsenabled"]         ?? true
+  });
 
-  // Apply per-flag overrides or fallback to global value
-  consoleTamperDetection = flags.console ?? globalSet ?? consoleTamperDetection;
-  debuggerTimerDetection = flags.debugger ?? globalSet ?? debuggerTimerDetection;
-  devToolsDetection = flags.devtools ?? globalSet ?? devToolsDetection;
-  checksumJS = flags.checksumjs ?? globalSet ?? checksumJS;
-  checksumCSS = flags.checksumcss ?? globalSet ?? checksumCSS;
-  clickBlockEnforcement = flags.clickblock ?? globalSet ?? clickBlockEnforcement;
-  functionTamperCheck = flags.functamper ?? globalSet ?? functionTamperCheck;
-  canvasSpoofingCheck = flags.canvascheck ?? globalSet ?? canvasSpoofingCheck;
-  headlessBrowserCheck = flags.headlesscheck ?? globalSet ?? headlessBrowserCheck;
-  cssOverrideDetection = flags.cssoverride ?? globalSet ?? cssOverrideDetection;
-  viewportConfined = flags.viewportconfined ?? true;
-  canvasMode = flags.canvasmode ?? true;
+  Object.defineProperty(window, "__zapFlags__", {
+    value: finalFlags,
+    writable: false,
+    configurable: false,
+    enumerable: false
+  });
+
+  // Destructure into top-level constants for easy conditional logic
+  const {
+    checksumJS,
+    checksumCSS,
+    clickBlockEnforcement,
+    functionTamperCheck,
+    canvasSpoofingCheck,
+    headlessBrowserCheck,
+    cssOverrideDetection,
+    iframeEmbedCheck,
+    iframeInjectCheck,
+    torCheck,
+    vpnCheck,
+    lockShadow,
+    monkeyPatching,
+    viewportConfined,
+    canvasMode,
+    consoleWarnings,
+    lockoutsEnabled
+  } = finalFlags;
+
+  // Expose locally if needed outside IIFE
+  window.ZapFlags = {
+    checksumJS,
+    checksumCSS,
+    clickBlockEnforcement,
+    functionTamperCheck,
+    canvasSpoofingCheck,
+    headlessBrowserCheck,
+    cssOverrideDetection,
+    iframeEmbedCheck,
+    iframeInjectCheck,
+    torCheck,
+    vpnCheck,
+    lockShadow,
+    monkeyPatching,
+    viewportConfined,
+    canvasMode,
+    consoleWarnings,
+    lockoutsEnabled
+  };
 })();
+
+// Helper function to check for ban conditions
+function isBanned() {
+  const fromStorage = localStorage.getItem("zapLockedOut") === "1";
+  const fromCookie = document.cookie.includes("zapLocked=1");
+  return fromStorage || fromCookie;
+}
+
+// "Long" banning
+if (isBanned()) {
+  location.replace("about:blank");
+}
 
 // Reload page on back/forward navigation to ensure CAPTCHA state resets
 window.addEventListener("pageshow", function (e) {
@@ -87,17 +142,18 @@ window.addEventListener("pageshow", function (e) {
 // Eventually I'll find a better way for this. (TODO)
 // const viewportMeta = document.querySelector('meta[name="viewport"]');
 // const notUserScalable = viewportMeta && /user-scalable\s*=\s*no/i.test(viewportMeta.content);
-
+//
 // if (!notUserScalable) {
-//  console.warn("ZapCaptcha requires viewport meta tag 'user-scalable=no' to ensure layout stability on mobile. Falling back to DOM mode.");
+//  console.warn("Viewport meta tag 'user-scalable=no' required for layout 
+//  stability on mobile. Falling back to DOM mode.");
 // }
-
+//
 // Handle mobile devices in the most secure way for now
 // const isMobile = /Mobi|Android/i.test(navigator.userAgent);
 // const useCanvasMode = !isMobile || (isMobile && notUserScalable);
 ////////////////////////////////////////////////////////////////////////////////////
 
-let useCanvasMode = canvasMode; // Canvas mode vs DOM mode is configurable via metatag
+let useCanvasMode = ZapFlags.canvasMode; // Canvas mode vs DOM mode is configurable via metatag
 
 // Disable all registered buttons until CAPTCHA loads
 document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.disabled = true);
@@ -105,9 +161,9 @@ document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.disabled = tr
 // Set up a CSSOM sheet
 const zapStyleSheet = (() => {
   const style = document.createElement("style");
-  const nonce = document.querySelector('meta[name="csp-nonce"]')?.content;
-  if (nonce) {
-    style.setAttribute("nonce", nonce);
+  const cspNonce = document.querySelector('meta[name="csp-nonce"]')?.content;
+  if (cspNonce) {
+    style.setAttribute("nonce", cspNonce);
   }
   style.setAttribute("data-zapcaptcha", "true");
 
@@ -127,25 +183,681 @@ const zapStyleSheet = (() => {
 
 let storedZapFingerprint = null;
 
-// Harden CSSOM a bit
-(function protectZapStyleSheet() {
-  const zapStyle = document.querySelector('style[data-zapcaptcha]');
-  const zapLink = document.querySelector('link[href*="zapcaptcha.css"]');
-  if (!zapStyle && !zapLink) return;
+insertZapRule(".zcap-trap", `
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+`);
 
-  const observer = new MutationObserver(() => {
-    if (zapStyle && !document.head.contains(zapStyle)) {
-      document.head.appendChild(zapStyle);
-      console.warn("ZapCaptcha: <style> tag was removed and re-injected.");
-    }
-    if (zapLink && !document.head.contains(zapLink)) {
-      document.head.appendChild(zapLink);
-      console.warn("ZapCaptcha: <link> stylesheet was removed and re-injected.");
-    }
+function getCryptoFloat(min, max) {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return min + (buf[0] / 0xffffffff) * (max - min);
+}
+
+// Trip mines
+function injectCheckboxTraps() {
+  const count = Math.floor(getCryptoFloat(1, 4)); // 1–3 traps
+
+  for (let i = 0; i < count; i++) {
+    const trap = document.createElement("input");
+    trap.type = "checkbox";
+    trap.name = `trap_${crypto.randomUUID()}`;
+    trap.classList.add("zcap-trap");
+
+    Object.assign(trap.style, {
+      position: "absolute",
+      left: `${Math.floor(Math.random() * window.innerWidth)}px`,
+      top: `${Math.floor(Math.random() * window.innerHeight)}px`,
+      width: "18px",
+      height: "18px",
+      opacity: "0",
+      pointerEvents: "auto",
+      zIndex: "9999"
+    });
+
+    trap.setAttribute("aria-hidden", "true");
+    trap.autocomplete = "off";
+    trap.tabIndex = -1;
+
+    trap.addEventListener("change", () => {
+      zapLockout("ZapCaptcha honeypot triggered");
+    });
+
+    document.body.appendChild(trap);
+  }
+
+  for (let i = 0; i < 2; i++) {
+    const fake = document.createElement("input");
+    fake.type = "text";
+    fake.name = `fk_${crypto.randomUUID()}`;
+    fake.classList.add("zcap-trap");
+
+    Object.assign(fake.style, {
+      position: "absolute",
+      left: `-9999px`,
+      width: "1px",
+      height: "1px",
+      opacity: "0",
+      pointerEvents: "none"
+    });
+
+    fake.setAttribute("aria-hidden", "true");
+    fake.autocomplete = "off";
+    fake.tabIndex = -1;
+    document.body.appendChild(fake);
+  }
+
+  const radio1 = document.createElement("input");
+  radio1.type = "radio";
+  radio1.name = "bot_radio";
+  radio1.value = "1";
+  radio1.classList.add("zcap-trap");
+
+  Object.assign(radio1.style, {
+    position: "absolute",
+    left: `-9999px`,
+    width: "1px",
+    height: "1px",
+    opacity: "0",
+    pointerEvents: "none"
   });
 
-  observer.observe(document.head, { childList: true });
+  radio1.setAttribute("aria-hidden", "true");
+  radio1.tabIndex = -1;
+
+  const radio2 = radio1.cloneNode();
+  radio2.value = "2";
+
+  document.body.appendChild(radio1);
+  document.body.appendChild(radio2);
+}
+injectCheckboxTraps();
+
+// Passive decoys for dumber pests
+function injectHoneypotFields() {
+  if (!document.body) return;
+
+  const randId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+
+  const traps = [
+    () => {
+      const el = document.createElement("input");
+      el.name = `email_${randId()}`;
+      el.id = `id_email_${randId()}`;
+      el.setAttribute("autocomplete", "nope");
+      return el;
+    },
+    () => {
+      const el = document.createElement("input");
+      el.type = "text";
+      el.name = `fax_${randId()}`;
+      el.id = `id_fax_${randId()}`;
+      el.tabIndex = -1;
+      el.setAttribute("autocomplete", "off");
+      el.style.display = "none";
+      return el;
+    },
+    () => {
+      const el = document.createElement("input");
+      el.name = `fax_${randId()}`;
+      el.id = `id_fax_${randId()}`;
+      el.tabIndex = -1;
+      el.setAttribute("autocomplete", "off");
+      el.style.position = "absolute";
+      el.style.left = "-9999px";
+      return el;
+    },
+    () => {
+      const el = document.createElement("input");
+      el.type = "checkbox";
+      el.name = `terms_${randId()}`;
+      el.id = `id_terms_${randId()}`;
+      el.required = true;
+      el.style.display = "none";
+      return el;
+    },
+    () => {
+      const el = document.createElement("input");
+      el.name = `honeypot_${randId()}`;
+      el.id = `id_honeypot_${randId()}`;
+      el.pattern = "^$";
+      el.title = "Leave blank";
+      el.setAttribute("autocomplete", "off");
+      return el;
+    },
+    () => {
+      const el = document.createElement("input");
+      el.name = `static_${randId()}`;
+      el.id = `id_static_${randId()}`;
+      el.readOnly = true;
+      el.value = "ZapCaptcha";
+      el.style.display = "none";
+      return el;
+    },
+    () => {
+      const el = document.createElement("input");
+      el.type = "submit";
+      el.name = `submit_fake_${randId()}`;
+      el.id = `id_submit_fake_${randId()}`;
+      el.value = "Submit";
+      el.style.display = "none";
+      return el;
+    },
+    () => {
+      const el = document.createElement("input");
+      el.type = "number";
+      el.name = `code_${randId()}`;
+      el.id = `id_code_${randId()}`;
+      el.step = "999999";
+      el.required = true;
+      el.style.display = "none";
+      return el;
+    },
+    () => {
+      const el = document.createElement("input");
+      el.name = `username_${randId()}`;
+      el.id = `id_username_${randId()}`;
+      el.setAttribute("autocomplete", "off");
+      el.setAttribute("spellcheck", "false");
+      return el;
+    },
+    () => {
+      const el = document.createElement("select");
+      el.name = `os_${randId()}`;
+      el.id = `id_os_${randId()}`;
+      el.required = true;
+      el.style.display = "none";
+      const opt1 = new Option("Select...", "");
+      const opt2 = new Option("Windows", "windows");
+      const opt3 = new Option("Linux", "linux");
+      el.append(opt1, opt2, opt3);
+      return el;
+    },
+    () => {
+      const el = document.createElement("input");
+      el.type = "password";
+      el.name = `pass_confirm_${randId()}`;
+      el.id = `id_pass_confirm_${randId()}`;
+      el.setAttribute("autocomplete", "new-password");
+      el.style.display = "none";
+      return el;
+    },
+    () => {
+      const el = document.createElement("textarea");
+      el.name = `comment_${randId()}`;
+      el.id = `id_comment_${randId()}`;
+      el.placeholder = "Type your comment here";
+      el.maxLength = 300;
+      el.style.display = "none";
+      return el;
+    },
+  ];
+
+  // Shuffle and select up to 5
+  const shuffled = traps.sort(() => 0.5 - Math.random());
+  const count = Math.floor(Math.random() * 5) + 1;
+
+  for (let i = 0; i < count; i++) {
+    try {
+      const el = shuffled[i]();
+      el.classList.add("zcap-trap");
+      el.setAttribute("aria-hidden", "true");
+      el.tabIndex = -1;
+      document.body.appendChild(el);
+    } catch (err) {
+      console.error("ZapCaptcha honeypot inject error:", err);
+    }
+  }
+}
+injectHoneypotFields()
+
+// Check the traps. Called before verification success.
+function checkHoneypotTraps() {
+  const traps = document.querySelectorAll(".zcap-trap");
+  for (const el of traps) {
+    if (!el.name && !el.id) continue;
+
+    const type = el.type || el.tagName.toLowerCase();
+    const val = (el.value || "").trim();
+
+    // Flag anything unexpectedly filled, changed, or interacted with
+    const suspicious =
+      (type === "checkbox" || type === "radio") ? el.checked :
+      (type === "select-one") ? el.selectedIndex > 0 :
+      (type === "submit") ? false :
+      (type === "readonly") ? false :
+      (val !== "");
+
+    if (suspicious) {
+      zapLockout("Honeypot trap triggered");
+      return false;
+    }
+  }
+  return true;
+}
+
+// Get wrecked
+function zapLockout(reason = "unspecified", logURL = null) {
+  console.warn("Zapcaptcha security: " + reason);
+  if (!ZapFlags.lockoutsEnabled) return;
+  try {
+    const timestamp = Date.now();
+
+    // Persist lock state across sessions
+    localStorage.setItem("zapLockedOut", "1");
+    document.cookie = "zapLocked=1; path=/; max-age=31536000; samesite=strict";
+
+    // Log reason to your backend (must be CORS-safe if cross-origin)
+    /*
+    if (logURL && navigator.sendBeacon) {
+      try {
+        const payload = {
+          event: "zapLockout",
+          reason,
+          timestamp,
+          page: location.href,
+          ua: navigator.userAgent,
+        };
+        navigator.sendBeacon(logURL, JSON.stringify(payload));
+      } catch (err) {
+        // Failure reporting
+      }
+    }
+    */
+
+    // Prevents DOM interaction before redirect
+    try {
+      document.documentElement.innerHTML = "";
+    } catch {}
+
+    // Trying to prevent sabotage
+    const goBlank = () => {
+      try {
+        location.replace("about:blank");
+      } catch {
+        location.href = "about:blank";
+      }
+    };
+
+    // Trying to prevent override timing attacks
+    setTimeout(goBlank, 30 + Math.floor(Math.random() * 70));
+  } catch {
+    location.replace("about:blank"); // gg
+  }
+}
+
+// Tor Detection Helper: User-Agent based
+function isTorUserAgent() {
+  try {
+    const ua = navigator.userAgent || "";
+    return /TorBrowser|Firefox\/102\.0/.test(ua);
+  } catch {
+    return false;
+  }
+}
+
+// Tor Detection Helper: Navigator fingerprint trap
+function isTorNavigatorFingerprint() {
+  try {
+    return (
+      navigator.languages?.length === 0 ||                  // Spoofed to empty
+      navigator.webdriver === true ||                      // Set to true in privacy mode
+      typeof navigator.hardwareConcurrency === "undefined" ||
+      typeof navigator.deviceMemory === "undefined"
+    );
+  } catch {
+    return false;
+  }
+}
+
+// Tor Detection Helper: Canvas fingerprint block
+function isTorCanvasBlocked() {
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return true;
+    ctx.fillText("test", 10, 10);
+    const data = canvas.toDataURL();
+    return data.length < 100; // Tor usually blocks or gives tiny output
+  } catch {
+    return true;
+  }
+}
+
+// Tor Detection Helper: Audio fingerprinting blocked
+function isTorAudioBlocked() {
+  try {
+    const ctx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+// Tor Detection Helper: Plugin trap (usually disabled)
+function isTorPluginTrap() {
+  try {
+    return navigator.plugins.length === 0;
+  } catch {
+    return true;
+  }
+}
+
+// Tor Detection Helper: WebGL renderer check
+function isTorWebGLBlocked() {
+  try {
+    const canvas = document.createElement("canvas");
+    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+    if (!gl) return true;
+    const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = debugInfo && gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+    return !renderer || /mesa|software/i.test(renderer); // Common Tor fallback
+  } catch {
+    return true;
+  }
+}
+
+// Tor Detection Helper: check for speed anomaly
+function isTorConnectionSpeedSuspicious() {
+  try {
+    const type = navigator.connection?.effectiveType;
+    return type === "slow-2g" || type === "2g" || !type;
+  } catch {
+    return true;
+  }
+}
+
+// Ban Tor browser if detected.
+// Must use fingerprinting; exit node crosscheck
+// not possible for obvious reasons of IP masking
+(function detectTorBrowser() {
+  if (!ZapFlags.torCheck) { return; }
+  
+  const torDetected =
+    isTorUserAgent() ||
+    isTorNavigatorFingerprint() ||
+    isTorCanvasBlocked() ||
+    isTorAudioBlocked() ||
+    isTorPluginTrap() ||
+    isTorWebGLBlocked() ||
+    isTorConnectionSpeedSuspicious ();
+
+  if (torDetected) {
+    document.cookie = "zaptor=1; path=/; max-age=3600"; // Tag
+    localStorage.setItem("torblock", "1"); // Tag
+    console.warn("ZapCaptcha: Tor Browser detected – access denied.");
+    document.body.innerHTML = `
+      <div style="background:black; color:red; font-family:sans-serif; padding:2em; text-align:center;">
+        <h1>❌ Access Blocked</h1>
+        <p>Tor Browser is not supported on this site.</p>
+      </div>
+    `;
+    zapLockout("ZapCaptcha: Tor Browser lockout triggered");
+  }
 })();
+
+// Helper: check for time spoof (To be deprecated)
+function isTimezoneMismatch(ipData) {
+  try {
+    const sysTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const ipTZ = ipData.timezone || '';
+    return ipTZ !== '' && sysTZ !== '' && ipTZ !== sysTZ;
+  } catch {
+    return false;
+  }
+}
+
+// VPN Detection Helper: check for known provider in ASN/ORG
+function isKnownVPNProvider(ipData) {
+  if (!ipData || !ipData.org || !ipData.asn) return false;
+
+  const org = ipData.org.toLowerCase();
+  const asn = ipData.asn.toUpperCase();
+
+  const suspiciousASNs = [
+    "AS212238", // Datacamp Limited
+    "AS9009",   // M247 Ltd (VPN heavy)
+    "AS208722", // Private Layer
+    "AS202425", // WorldStream
+    "AS211252", // VPN Consumer Network
+    "AS205621", // Obvious VPN ASN
+    "AS397086", // ProtonVPN
+    "AS202018", // NordVPN
+    "AS393406", // Mullvad
+    "AS200753", // ExpressVPN
+  ];
+
+  const suspiciousOrgs = [
+    "datacamp", "m247", "nordvpn", "proton", "expressvpn", "mullvad",
+    "private internet access", "vpn", "hosting", "colo", "cloud", "vps",
+    "surfshark", "cyberghost", "server"
+  ];
+
+  return suspiciousASNs.includes(asn) ||
+         suspiciousOrgs.some(keyword => org.includes(keyword));
+}
+
+// VPN Detection Helper: check for local spoof
+function isLocaleMismatch(ipData) {
+  try {
+    const region = (navigator.language.split('-')[1] || '').toUpperCase();
+    return ipData && ipData.country_code && region !== ipData.country_code.toUpperCase();
+  } catch {
+    return false;
+  }
+}
+
+// Helper: check for type faking (To be deprecated)
+function isConnectionTypeSuspicious() {
+  try {
+    const type = navigator.connection?.effectiveType || '';
+    return ["unknown", "slow-2g", ""].includes(type);
+  } catch {
+    return false;
+  }
+}
+
+// VPN Detection Helper: check RTC
+function isWebRTCLeakBlocked() {
+  try {
+    return typeof RTCPeerConnection === "undefined" || typeof navigator.mediaDevices === "undefined";
+  } catch {
+    return true;
+  }
+}
+
+// Detect VPN but only after IP is available
+(function detectVPN() {
+  if (!ZapFlags.vpnCheck) return;
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    let score = 0;
+    let ipData = {};
+
+    try {
+      const res = await fetch("https://ipapi.co/json/");
+      ipData = await res.json();
+    } catch (err) {
+      console.error("VPN Check: Failed to fetch IP info", err);
+    }
+
+    // Run checks
+    if (isLocaleMismatch(ipData)) {
+      console.warn("VPN Check: Locale mismatch with IP");
+      score += 2;
+    }
+
+    if (isKnownVPNProvider(ipData)) {
+      console.warn("VPN Check: VPN provider ASN/ORG detected");
+      score += 3;
+    }
+
+    if (isWebRTCLeakBlocked()) {
+      console.warn("VPN Check: WebRTC leak blocked or unavailable");
+      score += 2;
+    }
+
+    console.warn("VPN score:", score);
+
+    if (score >= 3) {
+      zapLockout("ZapCaptcha: VPN/Anonymizer detected – access blocked.");
+    } else {
+      console.info("ZapCaptcha: No VPN/anonymizer detected (score: " + score + ")");
+    }
+  });
+})();
+
+// Freeze critical objects to prevent DOM tampering after rendering
+function freezeDOM() {
+  try {
+    Object.freeze(document.body);
+    Object.freeze(document);
+  } catch (err) {
+    console.error("ZapCaptcha freezeDOM failed:", err);
+  }
+}
+
+// Block user interaction and stop script bubbling
+function haltPropagation() {
+  try {
+    document.body.addEventListener("click", e => e.stopImmediatePropagation(), true);
+    document.body.addEventListener("submit", e => e.preventDefault(), true);
+    document.body.addEventListener("keydown", e => e.stopImmediatePropagation(), true);
+    document.body.addEventListener("mousedown", e => e.stopImmediatePropagation(), true);
+  } catch (err) {
+    console.error("ZapCaptcha haltPropagation failed:", err);
+  }
+}
+
+// Optional total DOM wipe, should only be used after rendering fallback
+function obliterateDOM() {
+  try {
+    document.documentElement.innerHTML = "";
+  } catch (err) {
+    console.error("ZapCaptcha obliterateDOM failed:", err);
+  }
+}
+
+let zapIframeGuarded = false;
+let zapIframeRendered = false;
+
+// Render iframe-blocked message for same-origin fallback
+function renderBlockedMessage() {
+  if (zapIframeRendered) return; // Singleshot lock
+  zapIframeRendered = true;
+  try {
+    const div = document.createElement("div");
+    div.className = "zap-frame-blocked";
+
+    const h1 = document.createElement("h1");
+    h1.textContent = "❌ ZapCaptcha Blocked";
+
+    const p = document.createElement("p");
+    p.textContent = "This page cannot be embedded in a frame.";
+
+    div.appendChild(h1);
+    div.appendChild(p);
+
+    document.body.innerHTML = ""; // clear old content first
+    document.body.appendChild(div);
+  } catch (e) {
+    console.error("ZapCaptcha renderBlockedMessage failed:", e);
+  }
+}
+
+// Main iframe guard routine with styling + neutralization
+function zapIframeGuard() {
+  if (!ZapFlags.iframeEmbedCheck || zapIframeGuarded) return;
+  zapIframeGuarded = true; // Singleshot lock
+  if (window.top === window.self) return;
+
+  console.warn("ZapCaptcha: Iframe embedding detected – attempting neutralization");
+
+  // Inject <style> rules for fallback message (CSP-safe)
+  try {
+    const styleEl = document.createElement("style");
+    styleEl.setAttribute("data-zapcaptcha", "iframe-block");
+    const nonce = document.querySelector('meta[name="csp-nonce"]')?.content;
+    if (nonce) styleEl.setAttribute("nonce", nonce);
+    document.head.appendChild(styleEl);
+
+    const zapStyleSheet = styleEl.sheet;
+    if (zapStyleSheet) {
+      zapStyleSheet.insertRule(`
+        .zap-frame-blocked {
+          height: 100% !important;
+          width: 100% !important;
+          background: black !important;
+          color: red !important;
+          font-family: sans-serif !important;
+          padding: 2em !important;
+          text-align: center !important;
+        }
+      `);
+    }
+  } catch (e) {
+    console.error("ZapCaptcha: Failed to insert iframe-block CSS rule", e);
+  }
+
+  // Render message and lock DOM on next animation frame
+  requestAnimationFrame(() => {
+    renderBlockedMessage();
+    haltPropagation();
+    freezeDOM();
+  });
+
+  // Fallback in case RAF fails or DOM wasn't ready
+  setTimeout(() => {
+    if ((window.top !== window.self) && !zapIframeRendered) {
+      renderBlockedMessage();
+      haltPropagation();
+      freezeDOM();
+    }
+  }, 300);
+
+  // Try to break out of iframe (cross-origin may fail silently)
+  try {
+    window.top.location = window.location.href;
+    top.location = self.location;
+    window.top.location.replace(window.location.href);
+  } catch (e) {
+    console.warn("ZapCaptcha: Top redirect failed – likely cross-origin");
+  }
+}
+zapIframeGuard();
+
+// ZapCaptcha Anti-Iframe Disarming Logic
+window.addEventListener("DOMContentLoaded", () => {
+  if (!ZapFlags.iframeInjectCheck) { return; }
+  function disarmIframes() {
+    const disarm = iframe => {
+      if (!(iframe instanceof HTMLIFrameElement)) return;
+      console.warn("ZapCaptcha: Disarming iframe:", iframe);
+      iframe.src = "about:blank";
+      iframe.remove();
+    };
+
+    document.querySelectorAll("iframe").forEach(disarm);
+
+    const observer = new MutationObserver(mutations => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node instanceof HTMLIFrameElement) {
+            disarm(node);
+          } else if (node.nodeType === 1 && typeof node.querySelectorAll === "function") {
+            node.querySelectorAll("iframe").forEach(disarm);
+          }
+        }
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  disarmIframes();
+  setInterval(disarmIframes, 2000);
+});
 
 // Compute SHA-384 hash of canvas pixels
 function getCanvasPixelFingerprint(canvas) {
@@ -188,14 +900,31 @@ function setTransform(el, transformString) {
 }
 
 // Helper to insert rules without duplicates
-function insertZapRule(selector, rules) {
-  if (!zapStyleSheet) return; // Defensive guard
-  const rule = `${selector} { ${rules} }`;
-  const exists = Array.from(zapStyleSheet.cssRules).some(r => r.cssText === rule);
-  if (!exists) zapStyleSheet.insertRule(rule, zapStyleSheet.cssRules.length);
+function insertZapRule(selectorOrRule, rules = null) {
+  if (!zapStyleSheet) return;
+
+  let ruleText;
+
+  if (rules === null) {
+    // Full rule was passed directly (e.g. @media block)
+    ruleText = selectorOrRule.trim();
+  } else {
+    // Normal selector + rules
+    ruleText = `${selectorOrRule} { ${rules} }`;
+  }
+
+  // Prevent duplicate rules
+  const exists = Array.from(zapStyleSheet.cssRules).some(r => r.cssText === ruleText);
+  if (!exists) {
+    try {
+      zapStyleSheet.insertRule(ruleText, zapStyleSheet.cssRules.length);
+    } catch (e) {
+      console.warn("ZapCaptcha: Failed to insert rule:", ruleText, e);
+    }
+  }
 }
 
-// This helps out a bit with FOUC
+// This helps out a bit with FOUC and double prevents no-js bypass
 (function injectCriticalCSS() {
   insertZapRule(".zcaptcha-label:not(.verified) .label-verified", `
     display: none;
@@ -208,11 +937,16 @@ function insertZapRule(selector, rules) {
     opacity: 0;
     transform: scale(0.95);
   `);
+  insertZapRule(`@media (scripting: none) {
+    * {
+      display: none !important;
+    }
+  }`);
 })();
 
 // Lock up all clicks except for links
 (function preventTextCopyAndRightClick() {
-  if (!clickBlockEnforcement) return;
+  if (!ZapFlags.clickBlockEnforcement) return;
 
   // Inject CSS to block text selection globally
   insertZapRule("body.nocopy, body.nocopy *", `
@@ -239,7 +973,7 @@ function insertZapRule(selector, rules) {
 
 // Detect setTimeout, console.log, addEventListener monkey-patching
 (function detectFunctionTampering() {
-  if (!functionTamperCheck) { return; }
+  if (!ZapFlags.functionTamperCheck) { return; }
   const originals = {
     setTimeout: window.setTimeout,
     setInterval: window.setInterval,
@@ -257,19 +991,17 @@ function insertZapRule(selector, rules) {
         console.error !== originals.consoleError ||
         window.addEventListener !== originals.addEventListener
       ) {
-        document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha: Core API tampering detected.</h1>";
-        throw new Error("Function override detected");
+        zapLockout("Function override detected");
       }
     } catch (e) {
-      document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha: Function probe failed.</h1>";
-      throw e;
+      console.error("Function override error: " + e);
     }
   }, 1000);
 })();
 
 // Detect headless browser
 (function detectHeadlessBrowser() {
-  if (!headlessBrowserCheck) return;
+  if (!ZapFlags.headlessBrowserCheck) return;
 
   const ua = navigator.userAgent || "";
 
@@ -281,33 +1013,31 @@ function insertZapRule(selector, rules) {
   const block = !isMobile && (isWebDriver || isHeadlessUA);
 
   if (block) {
-    document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha: Headless browser blocked.</h1>";
-    throw new Error("ZapCaptcha security: Headless browser detected");
+    zapLockout("ZapCaptcha: Headless browser detected");
   }
 
-  // Optional: stealth fingerprint mismatch (but don’t throw on failure)
+  // Stealth fingerprint mismatch
   navigator.permissions?.query({ name: 'notifications' }).then(p => {
     if (!isMobile && Notification.permission === 'denied' && p.state === 'prompt') {
-      console.warn("ZapCaptcha security: Possible stealth headless environment.");
+      console.warn("ZapCaptcha: Possible stealth headless environment.");
     }
   });
 })();
 
 // Detect element CSS tampering
 (function detectCSSOverride() {
-  if (!cssOverrideDetection) { return; }
+  if (!ZapFlags.cssOverrideDetection) { return; }
   const el = document.querySelector('.zcaptcha-box');
   if (!el) return;
   const style = window.getComputedStyle(el);
   if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-    document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>CSS tamper detected.</h1>";
-    throw new Error("Style override");
+    zapLockout("ZapCaptcha: Style override");
   }
 })();
 
 // Periodic zapcaptcha.js Integrity Check
 (function checkZapCaptchaJS() {
-  if (!checksumJS) { return; }
+  if (!ZapFlags.checksumJS) { return; }
   const meta = document.querySelector('meta[name="zap-js-integrity"]');
   if (!meta || !meta.content || !meta.content.startsWith("sha384-")) return;
 
@@ -320,13 +1050,11 @@ function insertZapRule(selector, rules) {
       .then(hash => {
         const actual = "sha384-" + hash;
         if (actual !== expected) {
-          document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Integrity Error</h1>";
-          throw new Error(`zapcaptcha.js hash mismatch\nExpected: ${expected}\nActual: ${actual}`);
+          ZapLockout(`zapcaptcha.js hash mismatch\nExpected: ${expected}\nActual: ${actual}`);
         }
       })
       .catch(err => {
-        console.error("ZapCaptcha: Integrity check failed:", err);
-        document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Anti-Tamper: Integrity Check Failed. Access Denied.</h1>";
+        zapLockout("ZapCaptcha: Integrity Check Failed. Access Denied.");
       });
     }
     
@@ -336,7 +1064,7 @@ function insertZapRule(selector, rules) {
 
 // Periodic zapcaptcha.css Integrity Check
 (function checkZapCaptchaCSS() {
-  if (!checksumCSS) return;
+  if (!ZapFlags.checksumCSS) return;
 
   const meta = document.querySelector('meta[name="zap-css-integrity"]');
   if (!meta || !meta.content || !meta.content.startsWith("sha384-")) return;
@@ -355,8 +1083,7 @@ function insertZapRule(selector, rules) {
       .then(hash => {
         const actual = "sha384-" + hash;
         if (actual !== expected) {
-          document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha CSS Integrity Error</h1>";
-          throw new Error(`zapcaptcha.css hash mismatch\nExpected: ${expected}\nActual: ${actual}`);
+          zapLockout(`zapcaptcha.css hash mismatch\nExpected: ${expected}\nActual: ${actual}`);
         }
       })
       .catch(err => {
@@ -649,9 +1376,8 @@ function sha384(str) {
         
           if (useCanvasMode && canvas) {
             return validateZapCaptchaFingerprint(canvas).then(isValid => {
-              if (canvasSpoofingCheck && !isValid) {
-                document.body.innerHTML = "Canvas tampering detected.";
-                throw new Error("Zapcaptcha: Canvas fingerprint validation failed");
+              if (ZapFlags.canvasSpoofingCheck && !isValid) {
+                zapLockout("Zapcaptcha: Canvas fingerprint validation failed");
               } else {
                 return onSuccess?.();
               }
@@ -669,9 +1395,9 @@ function sha384(str) {
       }
 
       disableUI();
-      injectAntiBotTraps();
 
       const delay = getCryptoFloat(500, 2200);
+      
       setTimeout(() => {
         setTimeoutWatcher(box, triggerEl);
         allowEventDispatch(box);
@@ -707,6 +1433,11 @@ function sha384(str) {
             });
           }
           setTimeout(() => {
+            if (!checkHoneypotTraps()) {
+              zapLockout("ZapCaptcha honeypot triggered");
+              console.warn("Honeypot triggered");
+              return; // If we make it here, lockout is turned off
+            }
             onSuccess?.();
           }, window.ZapCaptcha.submitDelay || 1000);
         });
@@ -821,27 +1552,54 @@ function sha384(str) {
     document.body.appendChild(overlay);
   }
  
-  function preventInjection() {
+  // Patch createElement and createElementNS
+  function monkeyPatch() {
+    if (!ZapFlags.monkeyPatching) { return; }
     try {
+      const blockedTags = ["script", "iframe", "object", "embed"];
+      
       const origCreateElement = Document.prototype.createElement;
       Document.prototype.createElement = function(tagName, options) {
-        if (["script", "iframe", "object", "embed"].includes(String(tagName).toLowerCase())) {
+        if (blockedTags.includes(String(tagName).toLowerCase())) {
           console.warn("Blocked suspicious element creation:", tagName);
-          return document.createElement("div");
+          return origCreateElement.call(this, "div", options);
         }
         return origCreateElement.call(this, tagName, options);
+      };
+  
+      const origCreateElementNS = Document.prototype.createElementNS;
+      Document.prototype.createElementNS = function(ns, tagName, options) {
+        if (blockedTags.includes(String(tagName).toLowerCase())) {
+          console.warn("Blocked suspicious namespaced element:", tagName);
+          return origCreateElementNS.call(this, ns, "div", options);
+        }
+        return origCreateElementNS.call(this, ns, tagName, options);
       };
     } catch (err) {
       console.error("Injection prevention failed:", err);
     }
   }
-  preventInjection();
-
-  function getCryptoFloat(min, max) {
-    const buf = new Uint32Array(1);
-    crypto.getRandomValues(buf);
-    return min + (buf[0] / 0xffffffff) * (max - min);
+  monkeyPatch();
+  
+  // My attempt to safely block shadow attempts after load
+  function plugShadowDOM() {
+    if (!ZapFlags.lockShadow) { return; }
+    if (!window.Element || !Element.prototype.attachShadow) return;
+  
+    try {
+      Object.defineProperty(Element.prototype, 'attachShadow', {
+        value: function() {
+          console.warn("⚠️ Shadow DOM creation blocked on:", this);
+          return null;
+        },
+        writable: false,
+        configurable: false,
+      });
+    } catch (err) {
+      console.error("❌ Failed to lock down attachShadow:", err);
+    }
   }
+  plugShadowDOM();
   
   insertZapRule(".zap-fade-out", `
     transition: opacity 0.3s ease;
@@ -851,54 +1609,6 @@ function sha384(str) {
   function fadeAndRemove(node) {
     node.classList.add("zap-fade-out");
     setTimeout(() => node.remove(), 300);
-  }
-  
-  insertZapRule(".zcap-trap", `
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  `);
-
-  function injectAntiBotTraps() {
-    const count = Math.floor(getCryptoFloat(1, 4));
-    for (let i = 0; i < count; i++) {
-      const trap = document.createElement("input");
-      trap.type = "checkbox";
-      trap.name = `trap_${crypto.randomUUID()}`;
-      trap.classList.add("zcap-trap");
-      trap.style.left = `${Math.random() * window.innerWidth}px`;
-      trap.style.top = `${Math.random() * window.innerHeight}px`;
-
-      trap.setAttribute("aria-hidden", "true");
-      trap.autocomplete = "off";
-      trap.tabIndex = -1;
-      trap.addEventListener("change", () => {
-        alert("Zapcathca: Bot activity detected");
-        document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>Access Denied</h1>";
-        throw new Error("Honeypot triggered");
-      });
-      document.body.appendChild(trap);
-    }
-
-    for (let i = 0; i < 2; i++) {
-      const fake = document.createElement("input");
-      fake.type = "text";
-      fake.name = `fk_${crypto.randomUUID()}`;
-      fake.classList.add("zcap-trap");
-      fake.setAttribute("aria-hidden", "true");
-      document.body.appendChild(fake);
-    }
-
-    const radio1 = document.createElement("input");
-    radio1.type = "radio";
-    radio1.name = "bot_radio";
-    radio1.value = "1";
-    radio1.classList.add("zcap-trap");
-    radio1.setAttribute("aria-hidden", "true");
-    const radio2 = radio1.cloneNode();
-    radio2.value = "2";
-    document.body.appendChild(radio1);
-    document.body.appendChild(radio2);
   }
 
   insertZapRule(".zcap-dom-label", `
@@ -955,7 +1665,7 @@ function sha384(str) {
     let visibleWidth, visibleHeight;
 
     // Turns out some older Android WebViews don't support visualViewport
-    if (viewportConfined) {
+    if (ZapFlags.viewportConfined) {
       visibleWidth = window.visualViewport?.width || window.innerWidth;
       visibleHeight = window.visualViewport?.height || window.innerHeight;
     } else {
@@ -965,7 +1675,7 @@ function sha384(str) {
 
     let x, y;
     
-    if (viewportConfined) {    
+    if (ZapFlags.viewportConfined) {    
       x = scrollLeft + getCryptoFloat(0, visibleWidth - width);
       y = scrollTop + getCryptoFloat(0, visibleHeight - height);
     } else {
@@ -989,7 +1699,7 @@ function sha384(str) {
       x += dx;
       y += dy;
 
-      if (viewportConfined) {
+      if (ZapFlags.viewportConfined) {
         if (x <= scrollLeft || x + box.offsetWidth >= scrollLeft + visibleWidth) dx = -dx;
         if (y <= scrollTop || y + box.offsetHeight >= scrollTop + visibleHeight) dy = -dy;
       } else {
@@ -1008,6 +1718,7 @@ function sha384(str) {
     box.style.top = `${y}px`;
     move();
 
+    // Check for DOM mutation
     const mo = new MutationObserver(() => {
       if (!document.body.contains(box)) {
         document.body.appendChild(box);
@@ -1058,7 +1769,7 @@ function sha384(str) {
       
       let visibleWidth, visibleHeight;
       
-      if (viewportConfined) {
+      if (ZapFlags.viewportConfined) {
         visibleWidth = window.visualViewport?.width || window.innerWidth;
         visibleHeight = window.visualViewport?.height || window.innerHeight;
       } else {
@@ -1066,7 +1777,7 @@ function sha384(str) {
         visibleHeight = document.documentElement.scrollHeight;
       }
       
-      if (viewportConfined) {
+      if (ZapFlags.viewportConfined) {
         x = scrollLeft + getCryptoFloat(0, visibleWidth - canvas.width);
         y = scrollTop + getCryptoFloat(0, visibleHeight - canvas.height);
       } else {
@@ -1120,7 +1831,7 @@ function sha384(str) {
         x += dx;
         y += dy;
 
-        if (viewportConfined) {
+        if (ZapFlags.viewportConfined) {
           if (x <= scrollLeft || x >= scrollLeft + visibleWidth - canvas.width) dx = -dx;
           if (y <= scrollTop || y >= scrollTop + visibleHeight - canvas.height) dy = -dy;
         } else {
@@ -1172,57 +1883,49 @@ function sha384(str) {
   preload.href = "https://zapcaptcha.com/zap.svg";
   document.head.appendChild(preload);
   
-  // This trick doesn't seem to work well on
-  // modern browsers. I may deprecate this soon.
-  (function enforceConsoleSecurity() {
-    if (!devToolsDetection) { return; }
-    // Trap: Image .id getter trick
+  // This check is most obsolete at this point
+  function probeCheck() {
     const img = new Image();
     Object.defineProperty(img, 'id', {
       get: function () {
-        console.warn("DevTools accessed via console inspection"); // For now, this won't throw
+        console.warn("DevTools accessed via console inspection");
+        return "zap";
       }
-  });
- 
-  // Trap: Debugger timing anomaly
-  function timingCheck() {
-    if (!debuggerTimerDetection) { return; }
-    const start = performance.now();
-    debugger;
-    const end = performance.now();
-    if (end - start > 50) {
-    document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Anti-Tamper: Debugger timing anomaly detected. Access denied.</h1>";
-    throw new Error("Debugger slowdown detected");
-    }
+    });
+    img.id; // Trigger
   }
 
-  // Trap: Dimension discrepancy detection
+  
+  // False positives on mobile and with iframes
   function dimensionCheck() {
-    if (!consoleTamperDetection) { return; }
     const threshold = 160;
     const wDiff = window.outerWidth - window.innerWidth;
     const hDiff = window.outerHeight - window.innerHeight;
+    
     if (wDiff > threshold || hDiff > threshold) {
-      document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Anti-Tamper: Console tamper detected. Access denied.</h1>";
-      throw new Error("DevTools window dimension anomaly");
+      console.warn("DevTools window dimension anomaly");
     }
   }
-
-  // Trap: Probe detection via console.log()
-  function probeCheck() {
-    img.id; // Trigger silently
+ 
+  // Debugger timing anomaly
+  function timingCheck() {
+    const start = performance.now();
+    debugger;
+    const end = performance.now();
+    
+    if (end - start > 50) {
+      console.warn("ZapCaptcha: Debugger slowdown detected");
+    }
   }
  
-    // Run all checks repeatedly
+  // Run all checks repeatedly
+  if (ZapFlags.consoleWarnings) {
     setInterval(() => {
       try {
         probeCheck();
-        timingCheck();
         dimensionCheck();
-      } catch (e) {
-        console.error("Security exception:", e);
-      }
-    }, 1000);
-  })();
-  
+        timingCheck();
+      } catch (e) { console.error("Console warning issue: ", e); }
+    }, 10000);
+  }
 })();
