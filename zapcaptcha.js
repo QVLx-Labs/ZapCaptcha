@@ -18,92 +18,106 @@
  */
 
 // Helper: Convert PEM to CryptoKey
-async function importPemPublicKey(pem) {
-  try {
-    const b64 = pem
-      .replace(/-----BEGIN PUBLIC KEY-----/, "")
-      .replace(/-----END PUBLIC KEY-----/, "")
-      .replace(/\s+/g, "");
-    const binaryDer = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    return await crypto.subtle.importKey(
-      "spki",
-      binaryDer.buffer,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      true,
-      ["verify"]
-    );
-  } catch (err) {
-    console.error("ZapCaptcha: importPemPublicKey failed:", err);
-    return null;
-  }
-}
+const importPemPublicKey = (() => {
+  return async function(pem) {
+    try {
+      const b64 = pem.replace(/-----BEGIN PUBLIC KEY-----/, "")
+                     .replace(/-----END PUBLIC KEY-----/, "")
+                     .replace(/\s+/g, "");
+      const binaryDer = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      return await crypto.subtle.importKey(
+        "spki",
+        binaryDer.buffer,
+        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+        true,
+        ["verify"]
+      );
+    } catch (err) {
+      console.error("ZapCaptcha: importPemPublicKey failed:", err);
+      return null;
+    }
+  };
+})();
 
 // Helper: Hash JWK to base64url fingerprint
-async function hashJwkAsFingerprint(jwk) {
-  const json = JSON.stringify(jwk);
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(json));
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); // base64url format
-}
+const hashJwkAsFingerprint = (() => {
+  return async function(jwk) {
+    const json = JSON.stringify(jwk);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(json));
+    return btoa(String.fromCharCode(...new Uint8Array(digest)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); // base64url
+  };
+})();
 
 // Base64url decode (used for modulus `n`)
-function base64urlToBytes(b64url) {
-  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64url.length + 3) % 4);
-  const raw = atob(b64);
-  return new Uint8Array([...raw].map(c => c.charCodeAt(0)));
-}
+const base64urlToBytes = (() => {
+  return function(str) {
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4 !== 0) str += '=';
+    const binary = atob(str);
+    return Uint8Array.from(binary, c => c.charCodeAt(0));
+  };
+})();
+
+const nonce = () => {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
 
 // Helper: Validate PEM key and return { pubKeyObj, fingerprint, valid }
-async function validateZapPublicKey(pem) {
-  try {
-    if (
-      !pem ||
-      typeof pem !== "string" ||
-      !pem.includes("-----BEGIN PUBLIC KEY-----") ||
-      !pem.includes("-----END PUBLIC KEY-----")
-    ) {
+const validateZapPublicKey = (() => {
+  return async function(pem) {
+    try {
+      if (
+        !pem ||
+        typeof pem !== "string" ||
+        !pem.includes("-----BEGIN PUBLIC KEY-----") ||
+        !pem.includes("-----END PUBLIC KEY-----")
+      ) {
+        return { valid: false };
+      }
+
+      const pubKeyObj = await importPemPublicKey(pem);
+      if (!pubKeyObj) return { valid: false };
+
+      const jwk = await crypto.subtle.exportKey("jwk", pubKeyObj);
+      if (jwk.kty !== "RSA" ||
+          typeof jwk.n !== "string") {
+            return { valid: false };
+          }
+
+      const modulusBytes = base64urlToBytes(jwk.n);
+      if (modulusBytes.length !== 256) {
+        console.warn("ZapCaptcha: Key rejected. RSA key is not 2048-bit.");
+        return { valid: false };
+      }
+
+      const fingerprint = await hashJwkAsFingerprint(jwk);
+      
+      return { 
+               valid: true,
+               pubKeyObj,
+               fingerprint
+             };
+    } catch (err) {
+      console.error("ZapCaptcha: validateZapPublicKey failed:", err);
       return { valid: false };
     }
-
-    const pubKeyObj = await importPemPublicKey(pem);
-    if (!pubKeyObj) return { valid: false };
-
-    const jwk = await crypto.subtle.exportKey("jwk", pubKeyObj);
-
-    if (jwk.kty !== "RSA" || typeof jwk.n !== "string") {
-      return { valid: false };
-    }
-
-    const modulusBytes = base64urlToBytes(jwk.n);
-    if (modulusBytes.length !== 256) {
-      console.warn("ZapCaptcha: Key rejected. RSA key is not 2048-bit (256-byte modulus).");
-      return { valid: false };
-    }
-
-    const fingerprint = await hashJwkAsFingerprint(jwk);
-
-    return {
-      valid: true,
-      pubKeyObj,
-      fingerprint
-    };
-  } catch (err) {
-    console.error("ZapCaptcha: validateZapPublicKey failed:", err);
-    return { valid: false };
-  }
-}
+  };
+})();
 
 // Helper: Hash the configs so to catch tampering
-async function hashZapConfig(flags, fingerprint = "") {
-  const data = {
-    flags,
-    pubKeyFingerprint: fingerprint
+const hashZapConfig = (() => {
+  return async function(flags, fingerprint = "") {
+    const data = { flags, pubKeyFingerprint: fingerprint };
+    const encoded = new TextEncoder().encode(JSON.stringify(data));
+    const digest = await crypto.subtle.digest("SHA-256", encoded);
+    return btoa(String.fromCharCode(...new Uint8Array(digest)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); // base64url
   };
-  const encoded = new TextEncoder().encode(JSON.stringify(data));
-  const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); // base64url
-}
+})();
 
 let zapReadyResolver;
 const zapReadyPromise = new Promise(resolve => {
@@ -197,10 +211,15 @@ let zapFlags = (() => {
     
     viewportConfined:        flags["viewportconfined"]        ?? true,
     canvasMode:              flags["canvasmode"]              ?? true,
+    lockoutsEnabled:         flags["lockoutsenabled"]         ?? true,
+    sessionLock:             flags["sessionLock"]             ?? true,
+    cookieLock:              flags["cookieLock"]              ?? true,
     
     consoleWarnings:         flags["consolewarnings"]         ?? false,
-    lockoutsEnabled:         flags["lockoutsenabled"]         ?? false,
+    softLock:                flags["softlock"]                ?? false,
+    localLock:               flags["localLock"]               ?? false,
     serverMode:              flags["servermode"]              ?? false,
+    serverLock:              flags["serverlock"]              ?? false,
     clickDelay:              flags["clickdelay"]              ?? false,
     spawnDelay:              flags["spawndelay"]              ?? false
     
@@ -226,6 +245,11 @@ let zapFlags = (() => {
     canvasMode,
     consoleWarnings,
     lockoutsEnabled,
+    sessionLock,
+    cookieLock,
+    softLock,
+    localLock,
+    serverLock,
     clickDelay,
     spawnDelay
   } = zapFlags.get();
@@ -259,14 +283,7 @@ let zapFlags = (() => {
     true,
     ["sign", "verify"]
   );
-  
-  const nonce = (() => {
-    const bytes = new Uint8Array(32);
-    crypto.getRandomValues(bytes);
-    return btoa(String.fromCharCode(...bytes))
-      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  })();
-  
+
   zapState.init({
     nonce,
     configHash,
@@ -275,6 +292,10 @@ let zapFlags = (() => {
     pubKeyFingerprint: valid ? fingerprint : null,
     ephemeral: valid ? Object.freeze(ephemeralKeyPair) : null
   });
+  
+  if (zapFlags.getFlag("serverMode")) {
+    await getZapID(); // Force zapID generation early
+  }
   
   if (valid && consoleWarnings) {
     console.log("ZapCaptcha: serverMode active, key fingerprint:", fingerprint);
@@ -298,159 +319,346 @@ let zapFlags = (() => {
   document.dispatchEvent(new CustomEvent("zapcaptcha-ready")); // TBD
 })();
 
-// Helper to build payload destined for server
-function buildZapVerificationPayload(extraPayload = {}) {
-const state = zapState.get();
-  if (!zapState.isActive()) return null;
-  
-  const payload = {
-    nonce: state.nonce,
-    configHash: state.configHash,
-    fingerprint: state.pubKeyFingerprint,
-    ...extraPayload
-  };
-
-  const serialized = JSON.stringify(payload);
-  return { payload, serialized };
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? match[2] : null;
 }
 
-// Check server responses to ensure integrity
-async function verifyZapSignature(serialized, signatureB64) {
-  try {
-    const state = zapState.get();
-    if (!state?.active || !state.pubKeyObj) return false;
+// Clears only local cookies not needed for Zap specifically
+const clearAllCookies = (() => {
+  return function clearAllCookies() {
+    const preserved = ["zapid", "zapLocked"]; // Allowlist
+    const cookies = document.cookie.split(";");
 
-    const sigBytes = Uint8Array.from(atob(signatureB64), c => c.charCodeAt(0));
-    const enc = new TextEncoder().encode(serialized);
+    for (let i = 0; i < cookies.length; i++) {
+      const cookieName = cookies[i].split("=")[0].trim();
 
-    const isValid = await crypto.subtle.verify(
-      { name: "RSASSA-PKCS1-v1_5" },
-      state.pubKeyObj, // From closure
-      sigBytes,
-      enc
-    );
-
-    return isValid;
-  } catch (err) {
-    console.error("ZapCaptcha: Signature verification failed:", err);
-    return false;
-  }
-}
-
-function hashUserAgent() {
-  const data = navigator.userAgent + screen.width + screen.height + navigator.language;
-  const encoded = new TextEncoder().encode(data);
-  return crypto.subtle.digest("SHA-256", encoded).then(buf =>
-    btoa(String.fromCharCode(...new Uint8Array(buf)))
-      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-  );
-}
-
-async function zapSend(eventName, extraPayload = {}) {
-  const state = zapState.get();
-  if (!zapState.isActive()) return;
-
-  const currentHash = await hashZapConfig(zapFlags.get(), state.pubKeyFingerprint ?? "");
-  if (currentHash !== state.configHash) {
-    console.warn("ZapCaptcha: ⚠️ configHash mismatch – possible runtime tampering.");
-    return;
-  }
-
-  const payload = {
-    event: eventName,
-    nonce: state.nonce,
-    configHash: state.configHash,
-    fingerprint: state.pubKeyFingerprint,
-    timestamp: performance.now() + performance.timeOrigin,
-    ...extraPayload
-  };
-
-  const serialized = JSON.stringify(payload);
-  const enc = new TextEncoder().encode(serialized);
-
-  const sig = await crypto.subtle.sign(
-    { name: "RSASSA-PKCS1-v1_5" },
-    state.ephemeral.privateKey,
-    enc
-  );
-
-  const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-
-  const exportedEphemeral = await crypto.subtle.exportKey("jwk", state.ephemeral.publicKey);
-  if (!exportedEphemeral) throw new Error("Ephemeral public key export failed.");
-
-  const body = JSON.stringify({
-    payload,
-    signature: signatureB64,
-    ephemeral: exportedEphemeral
-  });
-
-  try {
-    const sent = navigator.sendBeacon("/zapcapture", body);
-  
-    if (sent) {
-      console.info("ZapCaptcha: Telemetry beacon queued successfully.");
-      // Optionally: check later for receipt
-    } else {
-      console.warn("ZapCaptcha: sendBeacon failed, falling back to fetch()");
-      const res = await fetch("/zapcapture", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-        keepalive: true
-      });
-  
-      if (!res.ok) {
-        console.warn("ZapCaptcha: fetch() failed with status", res.status);
-      } else {
-        console.info("ZapCaptcha: fetch() sent successfully.");
+      if (!preserved.includes(cookieName)) {
+        document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; samesite=strict`;
       }
     }
-  } catch (err) {
-    console.warn("ZapCaptcha telemetry failed:", err);
+  };
+})();
+
+const unlockState = (() => {
+  return function() {
+    if (zapFlags.getFlag("localLock")) {
+      try {
+        console.warn("Unlocked localLock");
+        localStorage.removeItem("zapLockedOut");
+        if (localStorage.getItem("zapLockedOut") === "1")
+          throw new Error("localStorage unlock failed");
+      } catch (e) {
+        console.warn("ZapCaptcha: localUnlock failed", e);
+      }
+    }
+
+    if (zapFlags.getFlag("sessionLock")) {
+      try {
+        console.warn("Unlocked sessionLock");
+        sessionStorage.removeItem("zapLockedOut");
+        if (sessionStorage.getItem("zapLockedOut") === "1")
+          throw new Error("sessionStorage unlock failed");
+      } catch (e) {
+        console.warn("ZapCaptcha: sessionUnlock failed", e);
+      }
+    }
+
+    if (zapFlags.getFlag("cookieLock")) {
+      try {
+        console.warn("Unlocked cookieLock");
+        document.cookie = "zapLocked=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=strict";
+        const match = document.cookie.match(/(?:^|;\s*)zapLocked=([^;]+)/);
+        if (match && match[1] === "1")
+          throw new Error("cookie unlock failed");
+      } catch (e) {
+        console.warn("ZapCaptcha: cookieUnlock failed", e);
+      }
+    }
+
+    // Emergency memory and DOM unlock
+    try {
+      delete window.__zapHardLock;
+      document.body.removeAttribute("data-zaplocked");
+    } catch (e) {
+      console.warn("ZapCaptcha: memory/DOM unlock failed", e);
+    }
+
+    window.dispatchEvent(new Event("zapUnlock")); // User hook
+  };
+})();
+
+const lockState = (() => {
+  return function() {
+    if (zapFlags.getFlag("localLock")) {
+      try {
+        console.warn("Locked localLock");
+        localStorage.setItem("zapLockedOut", "1");
+        if (localStorage.getItem("zapLockedOut") !== "1")
+          throw new Error("localStorage lock failed");
+      } catch (e) {
+        console.warn("ZapCaptcha: localLock failed", e);
+      }
+    }
+
+    if (zapFlags.getFlag("sessionLock")) {
+      try {
+        console.warn("Locked sessionLock");
+        sessionStorage.setItem("zapLockedOut", "1");
+        if (sessionStorage.getItem("zapLockedOut") !== "1")
+          throw new Error("sessionStorage lock failed");
+      } catch (e) {
+        console.warn("ZapCaptcha: sessionLock failed", e);
+      }
+    }
+
+    if (zapFlags.getFlag("cookieLock")) {
+      try {
+        console.warn("Locked cookieLock");
+        document.cookie = "zapLocked=1; path=/; max-age=31536000; samesite=strict";
+        const match = document.cookie.match(/(?:^|;\s*)zapLocked=([^;]+)/);
+        if (!match || match[1] !== "1") throw new Error("cookie write failed");
+      } catch (e) {
+        console.warn("ZapCaptcha: cookieLock failed", e);
+      }
+    }
+
+    window.dispatchEvent(new Event("zapLock")); // User hook
+  };
+})();
+
+// Helper to build payload destined for server
+const buildZapVerificationPayload = (() => {
+  return function(extraPayload = {}) {
+    const state = zapState.get();
+    if (!zapState.isActive()) return null;
+
+    const payload = {
+      nonce: state.nonce,
+      configHash: state.configHash,
+      fingerprint: state.pubKeyFingerprint,
+      ...extraPayload
+    };
+
+    const serialized = JSON.stringify(payload);
+    return { payload, serialized };
+  };
+})();
+
+// Check server responses to ensure integrity
+const verifyZapSignature = (() => {
+  return async function(payloadStr, signatureB64) {
+    try {
+      const pubKey = zapState.get()?.pubKeyObj;
+      if (!pubKey) throw new Error("Missing server public key");
+
+      const encoded = new TextEncoder().encode(payloadStr);
+      const sigBytes = base64urlToBytes(signatureB64);
+
+      const verified = await crypto.subtle.verify(
+        { name: "RSASSA-PKCS1-v1_5" },
+        pubKey,
+        sigBytes,
+        encoded
+      );
+      return verified;
+    } catch (err) {
+      console.error("ZapCaptcha: Signature verification failed:", err);
+      return false;
+    }
+  };
+})();
+
+const getZapID = (() => {
+  const COOKIE_KEY = "zapid";
+  const STORAGE_KEY = "zapid";
+  let cachedZapID = null;
+
+  async function generateZapID() {
+    const state = zapState.get();
+    const fingerprint = state?.pubKeyFingerprint ?? "";
+    const data = navigator.userAgent + screen.width + screen.height + fingerprint;
+    const encoded = new TextEncoder().encode(data);
+    const hashBuf = await crypto.subtle.digest("SHA-256", encoded);
+    return btoa(String.fromCharCode(...new Uint8Array(hashBuf)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
-}
 
-async function zapVerify(extraPayload = {}) {
-  await zapSend("zapVerify", extraPayload);
-}
+  function getCookieVal() {
+    const match = document.cookie.match(/(?:^|;\s*)zapid=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
 
-// Helper function to check for ban conditions
-function isBanned() {
-  const fromStorage = localStorage.getItem("zapLockedOut") === "1";
-  const fromCookie = document.cookie.includes("zapLocked=1");
-  return fromStorage || fromCookie;
-}
+  function setCookie(zid) {
+    document.cookie = `zapid=${encodeURIComponent(zid)}; path=/; max-age=31536000; samesite=strict`;
+  }
 
-// "Long" banning
-if (isBanned()) {
-  location.replace("about:blank");
-}
+  function setStorage(zid) {
+    localStorage.setItem(STORAGE_KEY, zid);
+    sessionStorage.setItem(STORAGE_KEY, zid);
+  }
+
+  return async function() {
+    if (cachedZapID) return cachedZapID;
+
+    const fromCookie = getCookieVal();
+    const fromStorage = localStorage.getItem(STORAGE_KEY);
+
+    // Check for mismatch
+    if (fromCookie && fromStorage && fromCookie !== fromStorage) {
+      console.warn("zapID mismatch between cookie and storage");
+      return await generateZapID();
+    }
+
+    if (fromCookie && fromStorage) {
+      cachedZapID = fromCookie;
+      return cachedZapID;
+    }
+
+    // Generate new zapID
+    const zapID = await generateZapID();
+    setCookie(zapID);
+    setStorage(zapID);
+    cachedZapID = zapID;
+    return zapID;
+  };
+})();
+
+const hashUserAgent = (() => {
+  return async function() {
+    const data = navigator.userAgent + screen.width + screen.height + navigator.language;
+    const encoded = new TextEncoder().encode(data);
+    const buf = await crypto.subtle.digest("SHA-256", encoded);
+    return btoa(String.fromCharCode(...new Uint8Array(buf)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  };
+})();
+
+const zapVerify = (() => {
+  return async function(extraPayload = {}) {
+    await zapSend("zapVerify", extraPayload);
+  };
+})();
+
+// Blocks user but not harshly, allowing them to navigate
+const zapSoftLock = (() => {
+  return function(reason = "softlock triggered") {
+    console.warn("ZapCaptcha soft lock: " + reason);
+
+    // Enable all zapcaptcha buttons
+    document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.disabled = true);
+
+    // Add the softlock classes to all boxes
+    document.querySelectorAll(".zcaptcha-box").forEach(box => {
+      box.classList.add("softlocked");
+      box.setAttribute("aria-disabled", "true");
+
+      // Disable all buttons/inputs inside
+      box.querySelectorAll("input, button, textarea, select").forEach(el => {
+        el.disabled = true;
+        el.setAttribute("aria-disabled", "true");
+        el.classList.add("softlock-disabled");
+      });
+
+      // Prevent any further events
+      box.addEventListener("click", e => e.stopImmediatePropagation(), { capture: true });
+    });
+
+    document.body.classList.add("zap-softlock-active");
+  };
+})();
+
+zapSoftLock();
+
+const zapSoftUnlock = (() => {
+  return function(reason = "softlock released") {
+    console.warn("ZapCaptcha soft unlock: " + reason);
+
+    // Enable all zapcaptcha buttons
+    document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.disabled = false);
+
+    // Remove the softlock classes from all boxes
+    document.querySelectorAll(".zcaptcha-box").forEach(box => {
+      box.classList.remove("softlocked");
+      box.setAttribute("aria-disabled", "false");
+
+      // Enable all buttons/inputs inside the box
+      box.querySelectorAll("input, button, textarea, select").forEach(el => {
+        el.disabled = false;
+        el.setAttribute("aria-disabled", "false");
+        el.classList.remove("softlock-disabled");
+      });
+
+      // Remove the event listener to allow clicks
+      box.removeEventListener("click", e => e.stopImmediatePropagation(), { capture: true });
+    });
+
+    // Remove class from body to indicate softlock is no longer active
+    document.body.classList.remove("zap-softlock-active");
+  };
+})();
+
+// Helper: Check for ban conditions
+const isBanned = (() => {
+  return async function() {
+    const useSession = zapFlags.getFlag("sessionLock");
+    const useLocal   = zapFlags.getFlag("localLock");
+    const useCookie  = zapFlags.getFlag("cookieLock");
+    const useServer  = zapFlags.getFlag("serverMode");
+    let isLocked = false;
+
+    // If server-only mode is active, bypass all local checks
+    if (useServer) {
+      try {
+        const zapID = await getZapID();
+        
+        const response = await zapSend("checkLock", {
+                  zapID,
+                  info: "session-init",
+                  ua: navigator.userAgent,
+                  lang: navigator.language
+                });
+
+        isLocked = response.locked;
+        
+        if (zapFlags.getFlag("serverLock")) {
+          if (isLocked === null) {
+            console.warn("ZapCaptcha: zapSend returned null");
+            return null;
+          }
+  
+          if (isLocked) {
+            await zapLockout("Server identified banned client: " + zapID);
+            return true;
+          }
+          else {
+            await zapUnlock("Server identified allowed client: " + zapID); 
+            return false;
+          }
+          return response.locked;
+        }
+      } catch (err) {
+        console.warn("ZapCaptcha: Server check failed:", err);
+        return false; // fail open to avoid deadlocks
+      }
+    }
+
+    // Otherwise, incorporate or switch to local state
+    let banned = false;
+    if (useSession) { banned ||= sessionStorage.getItem("zapLockedOut") === "1"; }
+    if (useLocal) { banned ||= localStorage.getItem("zapLockedOut") === "1"; }
+    if (useCookie) { banned ||= document.cookie.includes("zapLocked=1"); }
+    if (useServer) { banned ||=  isLocked; }
+
+    console.warn("Banned: " + banned);
+    return banned;
+  };
+})();
 
 // Reload page on back/forward navigation to ensure CAPTCHA state resets
 window.addEventListener("pageshow", function (e) {
   if (e.persisted) location.reload();
 });
-
-////////////////////////////////////////////////////////////////////////////////////
-// Note: I think I've fixed the viewPort bug on mobile devices with scalable on and
-//       canvas mode on. So this code is scheduled for deprecation. Hanging onto it
-//       until time proves that the system is stable.
-//
-// Eventually I'll find a better way for this. (TODO)
-// const viewportMeta = document.querySelector('meta[name="viewport"]');
-// const notUserScalable = viewportMeta && /user-scalable\s*=\s*no/i.test(viewportMeta.content);
-//
-// if (!notUserScalable) {
-//  console.warn("Viewport meta tag 'user-scalable=no' required for layout 
-//  stability on mobile. Falling back to DOM mode.");
-// }
-//
-// Handle mobile devices in the most secure way for now
-// const isMobile = /Mobi|Android/i.test(navigator.userAgent);
-// const useCanvasMode = !isMobile || (isMobile && notUserScalable);
-////////////////////////////////////////////////////////////////////////////////////
 
 // Disable all registered buttons until CAPTCHA loads
 document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.disabled = true);
@@ -478,52 +686,313 @@ const zapStyleSheet = (() => {
   }
 })();
 
-let storedZapFingerprint = null;
-
 insertZapRule(".zcap-trap", `
   position: absolute;
   opacity: 0;
   pointer-events: none;
 `);
 
-function getCryptoFloat(min, max) {
-  const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  return min + (buf[0] / 0xffffffff) * (max - min);
-}
+const getCryptoFloat = (() => {
+  return function getCryptoFloat(min, max) {
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    return min + (buf[0] / 0xffffffff) * (max - min);
+  };
+})();
 
-// Get wrecked
-function zapLockout(reason = "unspecified") {
-  console.warn("ZapCaptcha security: " + reason);
-  if (!zapFlags.getFlag("lockoutsEnabled")) return;
+// Kicks the user via private redirect
+const zapHardEject = (() => {
+  function doEject() {
+    try {
+      document.documentElement.innerHTML = "";
+      document.body.offsetHeight; // force reflow
 
-  try {
-    // Mark client as banned
-    localStorage.setItem("zapLockedOut", "1");
-    document.cookie = "zapLocked=1; path=/; max-age=31536000; samesite=strict";
-
-    // Let the server know
-    if (zapFlags.getFlag("serverMode")) {
-      zapSend("zapLockout", {
-        reason,
-        page: location.href,
-        ua: navigator.userAgent
-      });
-    }
-
-    document.documentElement.innerHTML = ""; // Wipe DOM
-
-    setTimeout(() => { // Jail
+      location.replace("https://192.0.2.0");
+    } catch {
       try {
         location.replace("about:blank");
       } catch {
-        location.href = "about:blank"; 
+        location.href = "about:blank";
       }
-    }, 30 + Math.floor(Math.random() * 70));
-  } catch {
-    location.replace("about:blank");
+    }
+  }
+
+  return function ejectNow() {
+    try {
+      setTimeout(doEject, getCryptoFloat(30, 100));
+    } catch (err) {
+      console.error("ZapCaptcha: Hard eject failed:", err);
+    }
+  };
+})();
+
+const handleServerResponse = (() => {
+  return async function handleServerResponse(response) {
+    console.warn("ZapCaptcha: entering handleServerResponse", response);
+
+    try {
+      if (!response || !response.payload || !response.signature) {
+        console.warn("ZapCaptcha: Invalid or missing response payload/signature");
+        return;
+      }
+
+      const serialized = JSON.stringify(response.payload);
+      const isValid = await verifyZapSignature(serialized, response.signature);
+
+      if (!isValid) {
+        console.warn("ZapCaptcha: Server response failed signature verification");
+        return;
+      }
+      
+      const isLocked = response.payload.locked;
+      
+      if (zapFlags.getFlag("serverMode")) {
+        const cmd = response.payload.action;
+        console.warn("ZapCaptcha: command =", cmd);
+        if (cmd === "lockUpdate") { // Log and process 'locked' state
+          if (isLocked === true) {
+            console.warn("ZapCaptcha: Server locked client:", response.payload.zapID);
+            await zapLockout("Lock commanded by server");
+          } else if (isLocked === false) {
+            console.warn("ZapCaptcha: Server unlocked client:", response.payload.zapID);
+            await zapUnlock("Unlock commanded by server");
+          }
+        }
+        else if (cmd === "display") {
+          console.warn("ZapCaptcha: Server cleared display");
+        }
+        else {
+          console.warn("ZapCaptcha: Unknown server action:", cmd);
+        }
+      }
+    } catch (err) {
+      console.error("ZapCaptcha: Exception in handleServerResponse:", err);
+    }
+  };
+})();
+
+const zapSend = (() => {
+  async function preparePayload(event, data = {}) {
+    const zapID = await getZapID();
+    const nonce = `${event}-${Date.now()}`;
+    const timestamp = Date.now();
+
+    // Wait until zapState is initialized
+    const state = await zapState.get();
+
+    const base = {
+      event,
+      zapID,
+      nonce,
+      timestamp,
+      fingerprint: state?.pubKeyFingerprint || "unknown",
+      ...data
+    };
+
+    // Only include configHash on zapVerify
+    if (event === "zapVerify") {
+      base.configHash = state?.configHash || "missing";
+    }
+
+    return base;
+  }
+
+  return async function zapSend(event, data = {}) {
+    console.log("zapSend event:", event);
+  
+    try {
+      const waitForKeys = async () => {
+        for (let i = 0; i < 50; i++) {
+          const s = zapState.get();
+          if (s?.ephemeral?.privateKey) return s;
+          await new Promise(r => setTimeout(r, 50));
+        }
+        throw new Error("Ephemeral keypair not initialized (timed out).");
+      };
+  
+      const state = await waitForKeys();
+      if (!state) {
+        console.error("ZapCaptcha: state is undefined.");
+        return null;
+      }
+  
+      const payload = await preparePayload(event, data);
+      const serialized = JSON.stringify(payload, null, 0);
+      const encoder = new TextEncoder();
+      const encoded = encoder.encode(serialized);
+  
+      const signatureBuffer = await crypto.subtle.sign(
+        { name: "RSASSA-PKCS1-v1_5" },
+        state.ephemeral.privateKey,
+        encoded
+      );
+  
+      const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+  
+      const exportedEphemeral = await crypto.subtle.exportKey("jwk", state.ephemeral.publicKey);
+      const ephemeral = {
+        kty: "RSA",
+        e: exportedEphemeral.e,
+        n: exportedEphemeral.n
+      };
+  
+      console.log("Payload being sent:", JSON.stringify(payload, null, 2));
+  
+      const publicKeyMeta = document.querySelector('meta[name="zap-server-pubkey"]');
+      if (!publicKeyMeta || !publicKeyMeta.content) {
+        console.error("ZapCaptcha: Public key meta tag missing or empty");
+        return null;
+      }
+      const publicKey = publicKeyMeta.content;
+  
+      const response = await fetch("/zapcapture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payload,
+          signature: sigB64,
+          ephemeral,
+          publicKey: publicKey
+        }),
+        keepalive: true
+      });
+  
+      // Ensure the response is valid
+      if (!response || !response.ok) {
+        console.warn("ZapCaptcha: Server check failed with status:", response ? response.status : 'No response');
+        const responseText = await response.text();  // Read response text only if response is valid
+        console.error("ZapCaptcha: Error details from server:", responseText);
+        return null;
+      }
+
+      let serverReply = {};
+      try {
+        serverReply = await response.json();
+        console.log("Response from server:", serverReply);
+      } catch (e) {
+        console.error("ZapCaptcha: Failed to parse JSON response:", e);
+        const fallbackText = await response.text();
+        console.error("Raw server response text:", fallbackText);
+        return null;
+      }
+      
+      console.log("BEFORE Reply:", serverReply);
+      
+      await handleServerResponse(serverReply);  // Handle server response
+      return serverReply;
+    } catch (err) {
+      console.error("ZapCaptcha: zapSend failed:", err);
+    }
+  };
+})();
+
+// Get wrecked
+const zapLockout = (() => {
+  return async function(reason = "unspecified") {
+    console.warn("ZapCaptcha security: " + reason);
+    if (!zapFlags.getFlag("lockoutsEnabled")) return;
+
+    try {
+      if (!zapFlags.getFlag("serverLock")) { lockState(); }
+
+      if (zapFlags.getFlag("serverMode") && !zapFlags.getFlag("serverLock")) {
+        const zapID = await getZapID();
+        await zapSend("zapLockout", {
+          zapID,
+          reason,
+          page: location.href,
+          ua: navigator.userAgent
+        });
+      }
+      if (zapFlags.getFlag("softLock")) { zapSoftLock(); } // Cripple
+      else { zapHardEject(); } // Kick
+    } catch (e) {
+      try {
+        location.replace("about:blank");
+      } catch {
+        location.href = "about:blank";
+      }
+    }
+  };
+})();
+
+const zapUnlock = (() => {
+  return async function(reason = "server issued unlock") {
+    console.warn("ZapCaptcha: Unlocking client –", reason);
+
+    if (!zapFlags.getFlag("serverLock")) { unlockState(); }
+
+    try {
+      if (zapFlags.getFlag("serverMode") && !zapFlags.getFlag("serverLock")) {
+        const zapID = await getZapID();
+        await zapSend("zapUnlock", {
+          zapID,
+          reason,
+          page: location.href,
+          ua: navigator.userAgent
+        });
+      }
+      if (zapFlags.getFlag("softLock")) { zapSoftUnlock(); } // Decrippled
+    } catch (err) {
+      console.error("ZapCaptcha: zapUnlock failed:", err);
+      location.href = location.origin;
+    } 
+  };
+})();
+
+// Server polling thread
+async function pollLock() {
+  // Check if lockouts are enabled and only proceed if they are
+  if (!zapFlags.getFlag("lockoutsEnabled")) {
+    return;
+  }
+  console.warn("POLLING");
+  
+  const isLocked = await isBanned();
+  if (isLocked === null) return;
+  console.warn("BANNED isLocked: " + isLocked);
+  
+  if (isLocked) {
+    try {
+      if (zapFlags.getFlag("softLock")) {
+        await zapSoftLock(); // Cripple
+      } else {
+        await zapHardEject(); // Kick
+      }
+    } catch (e) {
+      console.error("ZapCaptcha: Fallback lockout failed:", e);
+    }
+  }
+  else {
+    try {
+      if (zapFlags.getFlag("softLock")) {
+        await zapSoftUnlock(); // Decripple
+      } else {
+        //zapHardEject(); // NOP
+      }
+    } catch (e) {
+    console.error("ZapCaptcha: Fallback lockout failed:", e);
+    }
   }
 }
+
+//pollLock();
+
+setInterval(() => {
+  try {
+    pollLock();  // Repeatedly runs the test function every 10 seconds
+  } catch (e) { 
+    console.error("Console warning issue: ", e); 
+  }
+}, 10000);
+
+// Deferred lockout eject after DOMContentLoaded
+window.addEventListener("DOMContentLoaded", async () => {
+  pollLock();
+});
 
 // Trip mines
 function injectCheckboxTraps() {
@@ -784,7 +1253,7 @@ function isTorUserAgent() {
 function isTorNavigatorFingerprint() {
   try {
     return (
-      navigator.languages?.length === 0 ||                  // Spoofed to empty
+      navigator.languages?.length === 0 ||                 // Spoofed to empty
       navigator.webdriver === true ||                      // Set to true in privacy mode
       typeof navigator.hardwareConcurrency === "undefined" ||
       typeof navigator.deviceMemory === "undefined"
@@ -1127,8 +1596,23 @@ window.addEventListener("DOMContentLoaded", () => {
     const disarm = iframe => {
       if (!(iframe instanceof HTMLIFrameElement)) return;
       console.warn("ZapCaptcha: Disarming iframe:", iframe);
-      iframe.src = "about:blank";
-      iframe.remove();
+      try {
+        iframe.src = "https://192.0.2.0";
+        setTimeout(() => {
+          try {
+            iframe.remove();
+          } catch {
+            // fallback
+            try {
+              iframe.parentNode?.removeChild(iframe);
+            } catch {}
+          }
+        }, 30);
+      } catch {
+        try {
+          iframe.parentNode?.removeChild(iframe);
+        } catch {}
+      }
     };
 
     document.querySelectorAll("iframe").forEach(disarm);
@@ -1169,7 +1653,7 @@ let zapCanvasFingerprint = null; // Renamed for clarity
 function storeZapCaptchaFingerprint(canvas) {
   return getCanvasPixelFingerprint(canvas).then(fp => {
     zapCanvasFingerprint = fp;
-    console.log("✅ [ZapCaptcha] Canvas fingerprint stored:", fp);
+    console.log("ZapCaptcha: Canvas fingerprint stored -> ", fp);
   });
 }
 
@@ -1238,31 +1722,42 @@ function insertZapRule(selectorOrRule, rules = null) {
 })();
 
 // Lock up all clicks except for links
-(function preventTextCopyAndRightClick() {
-  if (!zapFlags.getFlag("clickBlockEnforcement")) return;
+const preventTextCopyAndRightClick = (function () {
+  function blockCopyAndContext() {
+    if (!zapFlags.getFlag("clickBlockEnforcement")) { return; }
 
-  // Inject CSS to block text selection globally
-  insertZapRule("body.nocopy, body.nocopy *", `
-    user-select: none !important;
-    -webkit-user-select: none !important;
-    -moz-user-select: none !important;
-    -ms-user-select: none !important;
-  `);
-  
-  document.body.classList.add("nocopy");
+    insertZapRule("body.nocopy, body.nocopy *", `
+      user-select: none !important;
+      -webkit-user-select: none !important;
+      -moz-user-select: none !important;
+      -ms-user-select: none !important;
+    `);
 
-  // Block all right-clicks globally
-  document.addEventListener("contextmenu", function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }, true);
+    document.body.classList.add("nocopy");
 
-  // Block copy event
-  document.addEventListener("copy", function (e) {
-    e.preventDefault();
-    alert("Zapcaptha security: Copying is disabled on this page.");
-  });
+    document.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+
+    document.addEventListener("copy", function (e) {
+      e.preventDefault();
+      alert("Zapcaptha security: Copying is disabled on this page.");
+    });
+  }
+
+  // Immediately invoke once
+  blockCopyAndContext();
+
+  // Return for later manual use
+  return blockCopyAndContext;
 })();
+
+Object.defineProperty(window, "preventTextCopyAndRightClick", {
+  value: preventTextCopyAndRightClick,
+  writable: false,
+  configurable: false
+});
 
 // Detect setTimeout, console.log, addEventListener monkey-patching
 (function detectFunctionTampering() {
@@ -1426,11 +1921,11 @@ function getDelays() {
   };
 }
 
-/////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////
 // Main IIFE
-/////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////
 (async function () {
-  const verifiedMap = new WeakMap();
+  const verifiedMap = new Map();
   const timeoutMap = new WeakMap();
   const signalMap = new WeakMap();
   
@@ -1463,12 +1958,6 @@ function getDelays() {
     return `${nonce}:${signature}`;
   }
   
-  // Oversimplified and not secure. Going to replace.
-  function hmacSync(message, key) {
-    return sha384(`${key}:${message}`);
-  }
-  
-  // Production-ready function
   async function hmac(message, key) {
     const enc = new TextEncoder();
     const cryptoKey = await crypto.subtle.importKey(
@@ -1476,12 +1965,6 @@ function getDelays() {
     );
     const sig = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(message));
     return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  function verifyNonceSync(nonceWithSig, expectedKey) {
-    const [nonce, sig] = nonceWithSig.split(":");
-    if (!nonce || !sig) return false;
-    return hmac(nonce, expectedKey).then(expectedSig => sig === expectedSig);
   }
   
   async function verifyNonceAsync(box) {
@@ -1491,16 +1974,6 @@ function getDelays() {
     if (!raw || !sig) return false;
     const expectedSig = await hmac(raw, name);
     return sig === expectedSig;
-  }
-
-  function setNonceSync(box, nonce) {
-    const name = getStorageName(box);
-    try {
-      document.cookie = `${NONCE_COOKIE_PREFIX}${name}=${nonce}; path=/; SameSite=Strict`;
-    } catch {}
-    try {
-      sessionStorage.setItem(`${NONCE_COOKIE_PREFIX}${name}`, nonce);
-    } catch {}
   }
   
   async function setNonceAsync(box) {
@@ -1547,6 +2020,8 @@ function getDelays() {
 
   function showTimeoutMessage(box, timeoutSec) {
     if (!box) return;
+    
+    if (box.classList.contains("softlocked")) { return; }
   
     // Remove old message if any
     const oldMsg = box.querySelector(".zcap-timeout-message");
@@ -1679,7 +2154,11 @@ function getDelays() {
       const triggerId = triggerEl.getAttribute("id");
       const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerEl.id}"]`);
       if (!box) {
-        console.error("ZapCaptcha failed to find box for trigger:", triggerEl.id);
+        console.error("ZapCaptcha: Failed to find box for trigger:", triggerEl.id);
+        return;
+      }
+      if (box.classList.contains("softlocked")) {
+        console.warn("ZapCaptcha: Softlock active — verification blocked.");
         return;
       }
       const timestamp = triggerEl.dataset.zcapVerifiedAt;
@@ -1747,6 +2226,8 @@ function getDelays() {
                   await zapVerify({ triggerId: triggerEl.id });
                 }
                 
+                //if (box.classList.contains("softlocked")) { return; }
+                
                 requestAnimationFrame(() => {
                   label.classList.add("verified");
                   label.setAttribute("aria-checked", "true");
@@ -1765,6 +2246,10 @@ function getDelays() {
               return; // If we make it here, lockout is turned off
             }
             
+            if (box.classList.contains("softlocked")) {
+              return;
+            }
+          
             onSuccess?.();
           }, DELAYS.submit);
         });
@@ -1885,14 +2370,16 @@ function getDelays() {
   });
 
   // Need to lock up the UI during challenge
-  function disableUI() {
-    const overlay = document.createElement("div");
-    overlay.className = "zcaptcha-overlay";
-    overlay.setAttribute("aria-hidden", "true");
-    overlay.addEventListener("click", (e) => e.stopPropagation());
-    document.body.appendChild(overlay);
-  }
- 
+  const disableUI = (() => {
+    return function disableUI() {
+      const overlay = document.createElement("div");
+      overlay.className = "zcaptcha-overlay";
+      overlay.setAttribute("aria-hidden", "true");
+      overlay.addEventListener("click", (e) => e.stopPropagation());
+      document.body.appendChild(overlay);
+    };
+  })();
+
   // Patch createElement and createElementNS
   function monkeyPatch() {
     if (!zapFlags.getFlag("monkeyPatching")) { return; }
