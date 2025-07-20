@@ -543,6 +543,7 @@ const zapVerify = (() => {
 // Blocks user but not harshly, allowing them to navigate
 const zapSoftLock = (() => {
   return function(reason = "softlock triggered") {
+    if (!zapFlags.getFlag("lockoutsEnabled")) return;
     console.warn("ZapCaptcha soft lock: " + reason);
 
     // Enable all zapcaptcha buttons
@@ -568,10 +569,9 @@ const zapSoftLock = (() => {
   };
 })();
 
-zapSoftLock();
-
 const zapSoftUnlock = (() => {
   return function(reason = "softlock released") {
+    if (!zapFlags.getFlag("lockoutsEnabled")) return;
     console.warn("ZapCaptcha soft unlock: " + reason);
 
     // Enable all zapcaptcha buttons
@@ -749,7 +749,7 @@ const handleServerResponse = (() => {
       if (zapFlags.getFlag("serverMode")) {
         const cmd = response.payload.action;
         console.warn("ZapCaptcha: command =", cmd);
-        if (cmd === "lockUpdate") { // Log and process 'locked' state
+        if (zapFlags.getFlag("lockoutsEnabled") && (cmd === "lockUpdate")) { // Log and process 'locked' state
           if (isLocked === true) {
             console.warn("ZapCaptcha: Server locked client:", response.payload.zapID);
             await zapLockout("Lock commanded by server");
@@ -892,9 +892,9 @@ const zapSend = (() => {
 // Get wrecked
 const zapLockout = (() => {
   return async function(reason = "unspecified") {
-    console.warn("ZapCaptcha security: " + reason);
     if (!zapFlags.getFlag("lockoutsEnabled")) return;
 
+    console.warn("ZapCaptcha security: " + reason);
     try {
       if (!zapFlags.getFlag("serverLock")) { lockState(); }
 
@@ -921,6 +921,7 @@ const zapLockout = (() => {
 
 const zapUnlock = (() => {
   return async function(reason = "server issued unlock") {
+    if (!zapFlags.getFlag("lockoutsEnabled")) return;
     console.warn("ZapCaptcha: Unlocking client –", reason);
 
     if (!zapFlags.getFlag("serverLock")) { unlockState(); }
@@ -946,9 +947,7 @@ const zapUnlock = (() => {
 // Server polling thread
 async function pollLock() {
   // Check if lockouts are enabled and only proceed if they are
-  if (!zapFlags.getFlag("lockoutsEnabled")) {
-    return;
-  }
+  if (!zapFlags.getFlag("lockoutsEnabled")) { return; }
   console.warn("POLLING");
   
   const isLocked = await isBanned();
@@ -979,7 +978,10 @@ async function pollLock() {
   }
 }
 
-//pollLock();
+// Deferred lockout poll after DOMContentLoaded
+window.addEventListener("DOMContentLoaded", async () => {
+  pollLock();
+});
 
 setInterval(() => {
   try {
@@ -987,12 +989,7 @@ setInterval(() => {
   } catch (e) { 
     console.error("Console warning issue: ", e); 
   }
-}, 10000);
-
-// Deferred lockout eject after DOMContentLoaded
-window.addEventListener("DOMContentLoaded", async () => {
-  pollLock();
-});
+}, 3333);
 
 // Trip mines
 function injectCheckboxTraps() {
@@ -2021,7 +2018,7 @@ function getDelays() {
   function showTimeoutMessage(box, timeoutSec) {
     if (!box) return;
     
-    if (box.classList.contains("softlocked")) { return; }
+    if (zapFlags.getFlag("lockoutsEnabled") && box.classList.contains("softlocked")) { return; }
   
     // Remove old message if any
     const oldMsg = box.querySelector(".zcap-timeout-message");
@@ -2157,7 +2154,7 @@ function getDelays() {
         console.error("ZapCaptcha: Failed to find box for trigger:", triggerEl.id);
         return;
       }
-      if (box.classList.contains("softlocked")) {
+      if (zapFlags.getFlag("lockoutsEnabled") && box.classList.contains("softlocked")) {
         console.warn("ZapCaptcha: Softlock active — verification blocked.");
         return;
       }
@@ -2226,8 +2223,6 @@ function getDelays() {
                   await zapVerify({ triggerId: triggerEl.id });
                 }
                 
-                //if (box.classList.contains("softlocked")) { return; }
-                
                 requestAnimationFrame(() => {
                   label.classList.add("verified");
                   label.setAttribute("aria-checked", "true");
@@ -2246,9 +2241,7 @@ function getDelays() {
               return; // If we make it here, lockout is turned off
             }
             
-            if (box.classList.contains("softlocked")) {
-              return;
-            }
+            if (zapFlags.getFlag("lockoutsEnabled") && box.classList.contains("softlocked")) { return; }
           
             onSuccess?.();
           }, DELAYS.submit);
@@ -2720,7 +2713,6 @@ function getDelays() {
     });
     img.id; // Trigger
   }
-
   
   // False positives on mobile and with iframes
   function dimensionCheck() {
