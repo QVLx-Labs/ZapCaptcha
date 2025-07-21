@@ -1321,9 +1321,9 @@ function isProbablyMobile() {
   return /iPhone|iPad|Android/i.test(navigator.userAgent);
 }
 
-// Ban Tor browser if detected.
+// Ban Tor browser if detected. Updated to be shadowed.
 // Must use fingerprinting; exit node crosscheck
-// not possible for obvious reasons of IP masking
+// not possible for obvious reasons of IP masking 
 (function detectTorBrowser() {
   if (!zapFlags.getFlag("torCheck")) return;
 
@@ -1346,13 +1346,39 @@ function isProbablyMobile() {
     localStorage.setItem("torblock", "1");
 
     console.warn("ZapCaptcha: Tor Browser detected – access denied.");
-    document.body.innerHTML = `
-      <div style="background:black; color:red; font-family:sans-serif; padding:2em; text-align:center;">
+    zapLockout("ZapCaptcha: Tor Browser lockout triggered");
+
+    // Clear the page content
+    document.body.innerHTML = "";
+
+    // Create a host for shadow root
+    const torRoot = document.createElement("div");
+    torRoot.id = "tor-block-root";
+    document.body.appendChild(torRoot);
+
+    // Attach shadow DOM
+    const shadow = torRoot.attachShadow({ mode: "closed" });
+
+    // Define HTML template
+    const template = document.createElement("template");
+    template.innerHTML = `
+      <style>
+        div#tor-message {
+          background: black;
+          color: red;
+          font-family: sans-serif;
+          padding: 2em;
+          text-align: center;
+        }
+      </style>
+      <div id="tor-message">
         <h1>❌ Access Blocked</h1>
         <p>Tor Browser is not supported on this site.</p>
       </div>
     `;
-    zapLockout("ZapCaptcha: Tor Browser lockout triggered");
+
+    // Inject template into shadow root
+    shadow.appendChild(template.content.cloneNode(true));
   }
 })();
 
@@ -1839,7 +1865,7 @@ Object.defineProperty(window, "preventTextCopyAndRightClick", {
         }
       })
       .catch(err => {
-        zapLockout("ZapCaptcha: Integrity Check Failed. Access Denied.");
+        zapLockout("ZapCaptcha: JS Integrity Check Failed. Access Denied.");
       });
     }
     
@@ -1872,8 +1898,7 @@ Object.defineProperty(window, "preventTextCopyAndRightClick", {
         }
       })
       .catch(err => {
-        console.error("ZapCaptcha: CSS integrity check failed:", err);
-        document.body.innerHTML = "<h1 style='color:red;text-align:center;padding-top:100px;'>ZapCaptcha Anti-Tamper: CSS Check Failed. Access Denied.</h1>";
+          zapLockout("ZapCaptcha: CSS Integrity Check Failed. Access Denied.");
       });
   }
 
@@ -2505,11 +2530,11 @@ function getDelays() {
       </div>
     `;
     document.body.appendChild(box);
-    animateBox(box, triggerEl, callback); // The bouncer challenge
+    animateBox(box, triggerEl, callback, delays, tamperWatcher); // Bouncer challenge
   }
 
   // DOM mode only. I pulled out the game logic into this function.
-  function animateBox(box, triggerEl, callback) {
+  function animateBox(box, triggerEl, callback, delays, tamperWatcher) {
     const boundsWidth = document.documentElement.clientWidth;
     let boundsHeight = document.documentElement.clientHeight;
     const width = box.offsetWidth;
@@ -2610,6 +2635,8 @@ function getDelays() {
     canvas.style.cursor = "pointer";
     canvas.style.maxWidth = "100vw";
     canvas.style.maxHeight = "100vh";
+    canvas.style.border = "2px solid cyan";
+    canvas.style.borderRadius = "8px";
     document.body.appendChild(canvas);
 
     const ctx = canvas.getContext("2d");
