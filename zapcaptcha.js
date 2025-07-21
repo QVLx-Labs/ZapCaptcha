@@ -1376,7 +1376,7 @@ function isKnownVPNProvider(ipData) {
 
   const suspiciousASNs = [
     "AS212238", // Datacamp Limited
-    "AS9009",   // M247 Ltd (VPN heavy)
+    "AS9009",   // M247 Ltd
     "AS208722", // Private Layer
     "AS202425", // WorldStream
     "AS211252", // VPN Consumer Network
@@ -1701,15 +1701,15 @@ function insertZapRule(selectorOrRule, rules = null) {
 // This helps out a bit with FOUC and double prevents no-js bypass
 (function injectCriticalCSS() {
   insertZapRule(".zcaptcha-label:not(.verified) .label-verified", `
-    display: none;
-    opacity: 0;
-    transform: scale(0.95);
+    display: none !important;
+    opacity: 0 !important;
+    transform: scale(0.95) !important;
   `);
 
   insertZapRule(".zcaptcha-label.verified .label-unverified", `
-    display: none;
-    opacity: 0;
-    transform: scale(0.95);
+    display: none !important;
+    opacity: 0 !important;
+    transform: scale(0.95) !important;
   `);
   insertZapRule(`@media (scripting: none) {
     * {
@@ -2150,6 +2150,31 @@ function getDelays() {
       const DELAYS = getDelays();
       const triggerId = triggerEl.getAttribute("id");
       const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerEl.id}"]`);
+      
+      // Watchdog definition
+      const tamperWatcher = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.type === "childList") {
+            if (!document.body.contains(box)) {
+              console.warn("ZapCaptcha: Box detached — restoring");
+              document.body.appendChild(box);
+            }
+          }
+          if (m.type === "attributes" && m.attributeName === "class") {
+            const isNowVerified = box.classList.contains("verified") || box.querySelector(".zcaptcha-label")?.classList.contains("verified");
+            if (isNowVerified && !verifiedMap.get(triggerEl)) {
+              zapLockout("ZapCaptcha tamper: class spoofing detected");
+            }
+          }
+        }
+      });
+      tamperWatcher.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["class"]
+      });
+      
       if (!box) {
         console.error("ZapCaptcha: Failed to find box for trigger:", triggerEl.id);
         return;
@@ -2226,6 +2251,7 @@ function getDelays() {
                 requestAnimationFrame(() => {
                   label.classList.add("verified");
                   label.setAttribute("aria-checked", "true");
+                  tamperWatcher.disconnect();
                   dispatchIfLegit(box, new CustomEvent("zapcaptcha-verified", {
                     detail: { timestamp: Date.now(), id: getStorageName(box) }
                   }));
@@ -2245,7 +2271,7 @@ function getDelays() {
           
             onSuccess?.();
           }, DELAYS.submit);
-        });
+        }, tamperWatcher);
       }, DELAYS.spawn);
     },
     async isVerified(triggerEl) {
@@ -2306,11 +2332,11 @@ function getDelays() {
     document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.removeAttribute("disabled"));
   
     insertZapRule(".zcap-brand-text", `
-      cursor: pointer;
-      color: black;
-      font-size: 13px;
-      font-family: inherit;
-      text-decoration: none;
+      cursor: pointer !important;
+      color: black !important;
+      font-size: 13px !important;
+      font-family: inherit !important;
+      text-decoration: none !important;
     `);
   
     document.querySelectorAll(".zcaptcha-box").forEach((box) => {
@@ -2318,6 +2344,14 @@ function getDelays() {
         const uuid = crypto.randomUUID?.() || Math.random().toString(36).slice(2, 10);
         box.dataset.zcapId = `zcid_${uuid}`;
       }
+      
+      // Lock zcapId
+      Object.defineProperty(box.dataset, "zcapId", {
+        value: box.dataset.zcapId,
+        writable: false,
+        configurable: false,
+        enumerable: true
+      });
       
       // Support compact mode
       if (box.dataset.size === "compact") {
@@ -2423,8 +2457,8 @@ function getDelays() {
   plugShadowDOM();
   
   insertZapRule(".zap-fade-out", `
-    transition: opacity 0.3s ease;
-    opacity: 0;
+    transition: opacity 0.3s ease !important;
+    opacity: 0 !important;
   `);
 
   function fadeAndRemove(node) {
@@ -2433,29 +2467,29 @@ function getDelays() {
   }
 
   insertZapRule(".zcap-dom-label", `
-    font-size: 20px;
-    color: #606060;
+    font-size: 20px !important;
+    color: #606060 !important;
   `);
   
   insertZapRule(".zcap-dom-right", `
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
   `);
   
   insertZapRule(".zcap-dom-logo", `
-    width: 46px;
-    height: 46px;
+    width: 46px !important;
+    height: 46px !important;
   `);
   
   insertZapRule(".zcap-zname", `
-    margin: 0;
-    padding: 0;
+    margin: 0 !important;
+    padding: 0 !important;
   `);
 
   // DOM mode is provided for legacy system support
   // Not recommended as a first option on most systems
-  function launchZcaptchaDOM(triggerEl, delays, callback) {
+  function launchZcaptchaDOM(triggerEl, delays, callback, tamperWatcher) {
     const box = document.createElement("div");
     box.className = "zcaptcha-bouncer";
     const checkboxClass = `zc_${crypto.randomUUID().slice(0, 8)}`;
@@ -2558,6 +2592,7 @@ function getDelays() {
       fadeAndRemove(box);
       const overlay = document.querySelector(".zcaptcha-overlay");
       if (overlay) fadeAndRemove(overlay);
+      tamperWatcher.disconnect();
       clearTimeoutWatcher(triggerEl);
       removeTimeoutMessage(box);
       setTimeoutWatcher(document.querySelector(`.zcaptcha-box[data-target-id="${triggerEl.id}"]`), triggerEl);
@@ -2566,7 +2601,7 @@ function getDelays() {
   }
 
   // This is obvious but, canvas mode only
-  function launchZcaptchaCanvas(triggerEl, delays, callback) {
+  function launchZcaptchaCanvas(triggerEl, delays, callback, tamperWatcher) {
     const canvas = document.createElement("canvas");
     canvas.width = window.innerWidth < 330 ? 280 : window.innerWidth < 360 ? 300 : 330;
     canvas.height = window.innerHeight < 120 ? 90 : 100;
@@ -2676,6 +2711,7 @@ function getDelays() {
       cancelAnimationFrame(canvas._raf);
       fadeAndRemove(canvas);
       const overlay = document.querySelector(".zcaptcha-overlay");
+      tamperWatcher.disconnect();
       if (overlay) fadeAndRemove(overlay);
       callback?.();
     });
