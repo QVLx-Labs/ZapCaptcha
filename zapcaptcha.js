@@ -1042,12 +1042,6 @@ const zapUnlock = (() => {
   };
 })();
 
-
-// ZapCaptain Tests ///////////////////////////////////////////////////////////////////////////////////////////
-//zapLockout("manual-text-lock", "Triggered by user for debugging\nDetails: testing payload visibility");
-//zapUnlock("manual-text-lock", "Triggered by user for debugging\nDetails: testing payload visibility");
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 // Server polling thread
 async function pollLock() {
   if (!zapFlags.getFlag("lockoutsEnabled")) { return; }
