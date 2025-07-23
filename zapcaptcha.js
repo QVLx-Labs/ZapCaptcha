@@ -223,10 +223,10 @@ let zapFlags = (() => {
     serverLock:              flags["serverlock"]              ?? false,
     clickDelay:              flags["clickdelay"]              ?? false,
     spawnDelay:              flags["spawndelay"]              ?? false
-    
   };
-
+  if (!finalFlags.serverMode && finalFlags.serverLock) { finalFlags.serverLock = false; }
   zapFlags.lock(finalFlags);
+  
   const {
     debugMessages,
     serverMode,
@@ -302,7 +302,7 @@ let zapFlags = (() => {
     zapMessage("i", "ZapCaptcha: serverMode active, key fingerprint:", fingerprint);
   } else if (!valid) { // Downgrade
     zapMessage("w", "serverMode downgraded due to bad key");
-    const patchedFlags = { ...finalFlags, serverMode: false };
+    const patchedFlags = { ...finalFlags, serverMode: false, serverLock: false };
     zapFlags = (() => {
       const _locked = Object.freeze({ ...finalFlags, serverMode: false });
       return {
