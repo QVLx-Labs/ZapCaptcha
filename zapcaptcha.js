@@ -214,6 +214,7 @@ let zapFlags = (() => {
     lockoutsEnabled:         flags["lockoutsenabled"]         ?? true,
     sessionLock:             flags["sessionLock"]             ?? true,
     cookieLock:              flags["cookieLock"]              ?? true,
+    extraChallenges:         flags["extrachallenges"]         ?? true,
     
     debugMessages:           flags["debugmessages"]           ?? false,
     consoleWarnings:         flags["consolewarnings"]         ?? false,
@@ -253,7 +254,8 @@ let zapFlags = (() => {
     localLock,
     serverLock,
     clickDelay,
-    spawnDelay
+    spawnDelay,
+    extraChallenges
   } = zapFlags.get();
 
   Object.defineProperty(window, "ZapFlags", {
@@ -2749,10 +2751,10 @@ function getDelays() {
       if (triggerExtra) {
         const triggerId = triggerEl?.id || (box?.getAttribute("data-target-id"));
         if (triggerId) {
-          launchExtraClickShadow(triggerId, canvas || box, callback);
+          if (zapFlags.getFlag("extraChallenges")) { launchExtraClickShadow(triggerId, box, callback); }
+          else { callback?.(); }
         } else {
-           zapMessage("e", "launchExtraClickShadow: Missing trigger ID");
-          callback?.();
+          zapMessage("e", "launchExtraClickShadow: Missing trigger ID");
         }
       } else {
         callback?.();
@@ -2899,10 +2901,10 @@ function getDelays() {
       if (triggerExtra) {
         const triggerId = triggerEl?.id || (box?.getAttribute("data-target-id"));
         if (triggerId) {
-          launchExtraClickShadow(triggerId, canvas || box, callback);
+          if (zapFlags.getFlag("extraChallenges")) { launchExtraClickShadow(triggerId, canvas, callback); }
+          else { callback?.(); }
         } else {
           zapMessage("e", "launchExtraClickShadow: Missing trigger ID");
-          callback?.();
         }
       } else {
         callback?.();
@@ -2931,7 +2933,7 @@ function getDelays() {
   preload.href = "https://zapcaptcha.com/zap.svg";
   document.head.appendChild(preload);
   
-  // This check is most obsolete at this point
+  // This check is mostly obsolete at this point
   function probeCheck() {
     const img = new Image();
     Object.defineProperty(img, 'id', {
