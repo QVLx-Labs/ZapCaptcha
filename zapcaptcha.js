@@ -520,6 +520,15 @@ const lockState = (() => {
   };
 })();
 
+// Detect most mobile devices (I think)
+const isProbablyMobile = (() => {
+  const test = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i;
+  const fn = function() {
+    return test.test(navigator.userAgent);
+  };
+  return fn;
+})();
+
 // Helper to build payload destined for server
 const buildZapVerificationPayload = (() => {
   return function(extraPayload = {}) {
@@ -1395,10 +1404,6 @@ function isTorConnectionSpeedSuspicious() {
   }
 }
 
-function isProbablyMobile() {
-  return /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
-}
-
 // Ban Tor browser if detected. Updated to be shadowed.
 // Must use fingerprinting; exit node crosscheck
 // not possible for obvious reasons of IP masking 
@@ -1415,7 +1420,7 @@ function isProbablyMobile() {
   if (isTorPluginTrap()) torScore += 1;
   if (isTorConnectionSpeedSuspicious()) torScore += 0.5;
 
-  const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
+  const isMobile = isProbablyMobile();
 
   const torDetected = hardBlocked || (!isMobile && torScore >= 2.5);
 
@@ -2155,11 +2160,12 @@ function getDelays() {
   }
   
   // Clear any previous timeout for this trigger
-  function clearTimeoutWatcher(triggerEl) {
-    if (timeoutMap.has(triggerEl)) {
-      clearTimeout(timeoutMap.get(triggerEl));
-      timeoutMap.delete(triggerEl);
-    }
+  function clearTimeoutWatcher(elOrId) {
+    const id = typeof elOrId === "string" ? elOrId : elOrId?.id;
+    const existing = timeoutMap.get(elOrId) || timeoutMap.get(id);
+    if (existing) clearTimeout(existing);
+    timeoutMap.delete(elOrId);
+    timeoutMap.delete(id);
   }
 
   // This function only handles how timeout even happens and
@@ -2170,7 +2176,7 @@ function getDelays() {
   // Timeout can happen in two cases:
   //   1. Challenge not completed in the set time
   //   2. Challenge completed but sits for a time
-  function setTimeoutWatcher(box, triggerEl) {
+  function setTimeoutWatcher(box, triggerEl) {    
     const timeoutAttr = box?.getAttribute("data-zcap-timeout");
     const timeoutSec = parseInt(timeoutAttr, 10);
     if (!timeoutSec || isNaN(timeoutSec) || timeoutSec < 3) return;
@@ -2310,9 +2316,9 @@ function getDelays() {
       if (form && !form.checkValidity()) { form.reportValidity(); return; }
 
       UIOverlayManager.disable(triggerEl);
-      
       setTimeout(() => {
         setTimeoutWatcher(box, triggerEl);
+
         allowEventDispatch(box);
         const launchFunc = useCanvasMode ? launchZcaptchaCanvas : launchZcaptchaDOM;
         const lbl = box.querySelector(".zcaptcha-label");
@@ -2660,7 +2666,7 @@ function getDelays() {
        y = getCryptoFloat(0, boundsHeight - height);
     }
     let speedScale = 1.0;
-    if (isProbablyMobile()) { speedScale = 0.3 };
+    if (isProbablyMobile()) { speedScale = 0.1 };
     let dx = getCryptoFloat(1.5, 3.5) * speedScale;
     let dy = getCryptoFloat(1.5, 3.5) * speedScale;
     let jitterCounter = 0;
@@ -2797,7 +2803,7 @@ function getDelays() {
         y = getCryptoFloat(0, Math.max(0, window.innerHeight - canvas.height));
       }
       let speedScale = 1.0;
-      if (isProbablyMobile()) { speedScale = 0.3 };
+      if (isProbablyMobile()) { speedScale = 0.1 };
       let dx = getCryptoFloat(1.5, 3.5) * speedScale;
       let dy = getCryptoFloat(1.5, 3.5) * speedScale;
       let jitterCounter = 0;
@@ -2938,6 +2944,11 @@ function getDelays() {
   }
   
   function launchExtraClickShadow(triggerId, el, finalCallback) {
+    const triggerEl = document.getElementById(triggerId);
+    if (triggerEl) {
+      clearTimeoutWatcher(triggerEl);
+      timeoutMap.delete(triggerEl);
+    }
     if (el._raf) cancelAnimationFrame(el._raf);
   
     // Clear existing timeout using triggerId instead of el
@@ -2949,6 +2960,7 @@ function getDelays() {
     const host = document.createElement("div");
     host.style.position = "absolute";
     host.style.zIndex = "10002";
+    host.dataset.zapOkShadow = "1";
   
     const rect = el.getBoundingClientRect();
     host.style.left = `${rect.left + window.scrollX}px`;
@@ -2965,7 +2977,7 @@ function getDelays() {
     const container = document.createElement("div");
     container.style.width = "100%";
     container.style.height = "100%";
-    container.style.background = "#111";
+    container.style.background = "#000";
     container.style.color = "#fff";
     container.style.display = "flex";
     container.style.flexDirection = "column";
@@ -3014,6 +3026,7 @@ function getDelays() {
     timeoutMap.set(triggerId, timeoutHandle); // Use ID, not DOM node
   
     if (mode === "multi") {
+      container.style.boxShadow = "inset 0 0 0 2px magenta";
       let remaining = Math.floor(getCryptoFloat(1, 7));
       container.textContent = `Click ${remaining} more time${remaining > 1 ? 's' : ''}`;
   
@@ -3030,20 +3043,48 @@ function getDelays() {
           extraMap.delete(el);
           UIOverlayManager.enable(el);
           finalCallback?.();
+          const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerId}"]`);
+          if (box) setTimeoutWatcher(box, el);
         }
       });
   
     } else if (mode === "hold") {
+      container.style.boxShadow = "inset 0 0 0 2px orange";
       const holdMs = Math.floor(getCryptoFloat(2, 5)) * 1000;
       let holdTimer = null;
-      let satisfied = false;
-  
+      let countdownInterval = null;
+      let holdStart = null;
+      let attemptId = 0;
+    
       container.textContent = `Hold click for ${holdMs / 1000} seconds`;
-  
+    
+      const renderCountdown = () => {
+        const remaining = holdMs - (Date.now() - holdStart);
+        if (remaining > 0) {
+          container.textContent = `Holding… ${(remaining / 1000).toFixed(1)}s`;
+        } else {
+          container.textContent = `Almost there…`;
+        }
+      };
+    
       const startHold = () => {
-        if (satisfied || holdTimer) return;
+        attemptId++;
+        const thisAttempt = attemptId;
+    
+        // Reset timers
+        if (holdTimer) clearTimeout(holdTimer);
+        if (countdownInterval) clearInterval(countdownInterval);
+    
+        holdStart = Date.now();
+        renderCountdown();
+    
+        countdownInterval = setInterval(() => {
+          renderCountdown();
+        }, 100);
+    
         holdTimer = setTimeout(() => {
-          satisfied = true;
+          if (thisAttempt !== attemptId) return; // stale
+          clearInterval(countdownInterval);
           clearTimeout(timeoutHandle);
           clearTimeoutWatcher(triggerId);
           host.remove();
@@ -3051,22 +3092,31 @@ function getDelays() {
           extraMap.delete(el);
           UIOverlayManager.enable(el);
           finalCallback?.();
+          const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerId}"]`);
+          if (box) setTimeoutWatcher(box, el);
         }, holdMs);
       };
-  
+    
       const cancelHold = () => {
-        if (satisfied) return;
+        attemptId++; // Invalidate previous hold
         if (holdTimer) clearTimeout(holdTimer);
+        if (countdownInterval) clearInterval(countdownInterval);
         holdTimer = null;
+        countdownInterval = null;
         container.textContent = `Hold click for ${holdMs / 1000} seconds (try again)`;
       };
-  
+    
+      container.style.touchAction = "none";
       container.addEventListener("pointerdown", startHold);
+      container.addEventListener("mousedown", startHold);
+      container.addEventListener("touchstart", startHold);
+    
       container.addEventListener("pointerup", cancelHold);
+      container.addEventListener("mouseup", cancelHold);
+      container.addEventListener("touchend", cancelHold);
       container.addEventListener("pointerleave", cancelHold);
       container.addEventListener("pointercancel", cancelHold);
     }
-  
     shadow.appendChild(container);
   }
   
