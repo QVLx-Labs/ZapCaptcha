@@ -2023,7 +2023,7 @@ function getDelays() {
 //////////////////////////////////////////////////////////////////////////////////////
 (async function () {
   const verifiedMap = new Map();
-  const timeoutMap = new WeakMap();
+  const timeoutMap = new Map();
   const signalMap = new WeakMap();
   const canvasMap = new WeakMap(); // For canvas bouncer object
   const bouncerMap = new WeakMap(); // For DOM bouncer object
@@ -2940,16 +2940,10 @@ function getDelays() {
   function launchExtraClickShadow(triggerId, el, finalCallback) {
     if (el._raf) cancelAnimationFrame(el._raf);
   
-    // Cancel existing timeout and mark shadow mode
-    const existingTimeout = timeoutMap.get(el);
-    if (existingTimeout) {
-      clearTimeout(existingTimeout);
-      timeoutMap.delete(el);
-    }
+    // Clear existing timeout using triggerId instead of el
+    clearTimeoutWatcher(triggerId);
   
-    // Mark shadow challenge active
     extraMap.set(el, true);
-  
     UIOverlayManager.disable(el);
   
     const host = document.createElement("div");
@@ -2963,9 +2957,10 @@ function getDelays() {
     host.style.height = `${rect.height}px`;
   
     document.body.appendChild(host);
-    const shadow = host.attachShadow({ mode: "closed" });
   
-    let remaining = Math.floor(getCryptoFloat(1, 7));
+    const mode = Math.random() < 0.5 ? "multi" : "hold";
+    const shadowMode = mode === "hold" ? "open" : "closed";
+    const shadow = host.attachShadow({ mode: shadowMode });
   
     const container = document.createElement("div");
     container.style.width = "100%";
@@ -2980,36 +2975,31 @@ function getDelays() {
     container.style.borderRadius = "8px";
     container.style.cursor = "pointer";
     container.style.userSelect = "none";
-    container.textContent = `Click ${remaining} more time${remaining > 1 ? 's' : ''}`;
   
-    container.addEventListener("click", () => {
-      remaining--;
-      if (remaining > 0) {
-        container.textContent = `Click ${remaining} more time${remaining > 1 ? 's' : ''}`;
-      } else {
-        clearTimeout(killTimeout);
-        host.remove();
-        el.remove();
-  
-        // Completion cleanup
-        extraMap.delete(el);
-        UIOverlayManager.enable(el);
-        finalCallback?.();
-      }
-    });
-  
-    shadow.appendChild(container);
-  
-    const killTimeout = setTimeout(() => {
-      // Timeout cleanup
-      zapMessage("w", "Extra click challenge expired");
+    // Timeout logic — works for all modes
+    const timeoutHandle = setTimeout(() => {
       extraMap.delete(el);
+      verifiedMap.set(el, false);
+  
+      const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerId}"]`);
+      if (box) {
+        removeTimeoutMessage(box);
+        showTimeoutMessage(box, 10);
+        box.classList.remove("verified", "pending");
+        const label = box.querySelector(".zcaptcha-label");
+        if (label) label.classList.remove("verified", "pending");
       
-      // Show message
-      const targetBox = document.querySelector(`.zcaptcha-box[data-target-id="${triggerId}"]`);
-      if (targetBox) { showTimeoutMessage(targetBox, 10); }
-      else { zapMessage("e","Shadow timeout box not found for:", el.id); }
-      
+        // Auto-remove timeout message after 5s
+        setTimeout(() => {
+          removeTimeoutMessage(box);
+          box.classList.remove("pending", "verified");
+          const label = box.querySelector(".zcaptcha-label");
+          if (label) label.classList.remove("pending", "verified");
+        }, 5000);
+      } else {
+        zapMessage("e", "Shadow timeout box not found for:", el.id);
+      }
+  
       UIOverlayManager.enable(el);
       fadeAndRemove(host);
       fadeAndRemove(el);
@@ -3017,7 +3007,67 @@ function getDelays() {
       document.dispatchEvent(new CustomEvent("zapcaptcha-extra-expired", {
         detail: { triggeredAt: Date.now(), target: el }
       }));
+  
+      clearTimeoutWatcher(triggerId); // Use ID, not DOM node
     }, 10000);
+  
+    timeoutMap.set(triggerId, timeoutHandle); // Use ID, not DOM node
+  
+    if (mode === "multi") {
+      let remaining = Math.floor(getCryptoFloat(1, 7));
+      container.textContent = `Click ${remaining} more time${remaining > 1 ? 's' : ''}`;
+  
+      container.addEventListener("click", (e) => {
+        if (!e.isTrusted) return;
+        remaining--;
+        if (remaining > 0) {
+          container.textContent = `Click ${remaining} more time${remaining > 1 ? 's' : ''}`;
+        } else {
+          clearTimeout(timeoutHandle);
+          clearTimeoutWatcher(triggerId);
+          host.remove();
+          el.remove();
+          extraMap.delete(el);
+          UIOverlayManager.enable(el);
+          finalCallback?.();
+        }
+      });
+  
+    } else if (mode === "hold") {
+      const holdMs = Math.floor(getCryptoFloat(2, 5)) * 1000;
+      let holdTimer = null;
+      let satisfied = false;
+  
+      container.textContent = `Hold click for ${holdMs / 1000} seconds`;
+  
+      const startHold = () => {
+        if (satisfied || holdTimer) return;
+        holdTimer = setTimeout(() => {
+          satisfied = true;
+          clearTimeout(timeoutHandle);
+          clearTimeoutWatcher(triggerId);
+          host.remove();
+          el.remove();
+          extraMap.delete(el);
+          UIOverlayManager.enable(el);
+          finalCallback?.();
+        }, holdMs);
+      };
+  
+      const cancelHold = () => {
+        if (satisfied) return;
+        if (holdTimer) clearTimeout(holdTimer);
+        holdTimer = null;
+        container.textContent = `Hold click for ${holdMs / 1000} seconds (try again)`;
+      };
+  
+      container.addEventListener("pointerdown", startHold);
+      container.addEventListener("pointerup", cancelHold);
+      container.addEventListener("pointerleave", cancelHold);
+      container.addEventListener("pointercancel", cancelHold);
+    }
+  
+    shadow.appendChild(container);
   }
   
   // False positives on mobile and with iframes
