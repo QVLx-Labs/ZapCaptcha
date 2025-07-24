@@ -432,7 +432,7 @@ function injectZapChecksumBadge(checksum) {
     const checksum = await sha384();
     injectZapChecksumBadge(checksum);
   } catch (err) {
-    console.error("ZapCaptcha: Failed to compute checksum badge:", err);
+    zapMessage("w", "ZapCaptcha: Failed to compute checksum badge:", err);
   }
 })();
 
@@ -1476,8 +1476,8 @@ function isKnownVPNProvider(ipData) {
   if (!ipData || !ipData.org || !ipData.asn) return false;
   const org = ipData.org.toLowerCase();
   const asn = ipData.asn.toUpperCase();
-  console.error("org: " + org);
-  console.error("asn: " + asn);
+  zapMessage("i", "vpnCheck org: " + org);
+  zapMessage("i", "vpnCheck asn: " + asn);
 
   const suspiciousASNs = [
     "AS212238", // Datacamp Limited
@@ -2025,8 +2025,9 @@ function getDelays() {
   const verifiedMap = new Map();
   const timeoutMap = new WeakMap();
   const signalMap = new WeakMap();
-  const canvasMap = new WeakMap();
-  const bouncerMap = new WeakMap();
+  const canvasMap = new WeakMap(); // For canvas bouncer object
+  const bouncerMap = new WeakMap(); // For DOM bouncer object
+  const extraMap = new WeakMap(); // For shadow challenge
   
   const NONCE_COOKIE_PREFIX = "zc_";
 
@@ -2122,10 +2123,6 @@ function getDelays() {
     
     if (zapFlags.getFlag("lockoutsEnabled") && box.classList.contains("softlocked")) { return; }
   
-    // Remove old message if any
-    const oldMsg = box.querySelector(".zcap-timeout-message");
-    if (oldMsg) oldMsg.remove();
-  
     // Create new message
     const msg = document.createElement("div");
     msg.setAttribute("aria-live", "assertive");
@@ -2180,6 +2177,10 @@ function getDelays() {
 
     clearTimeoutWatcher(triggerEl);
   
+    if (typeof extraMap !== "undefined" && extraMap.get(triggerEl)) {
+      return;
+    }
+  
     const timeoutId = setTimeout(() => {
       const trueBox = document.querySelector(`.zcaptcha-box[data-target-id="${triggerEl.id}"]`) || box;
       
@@ -2229,8 +2230,7 @@ function getDelays() {
       }
       
       if (shouldRemoveOverlay) {
-        const overlay = document.querySelector(".zcaptcha-overlay");
-        if (overlay) overlay.remove();
+        UIOverlayManager.enable(triggerEl);
       }
 
       trueBox.dispatchEvent(new CustomEvent("zapcaptcha-expired", {
@@ -2309,7 +2309,7 @@ function getDelays() {
       const form = triggerEl.closest("form");
       if (form && !form.checkValidity()) { form.reportValidity(); return; }
 
-      disableUI();
+      UIOverlayManager.disable(triggerEl);
       
       setTimeout(() => {
         setTimeoutWatcher(box, triggerEl);
@@ -2339,6 +2339,7 @@ function getDelays() {
                 
                 requestAnimationFrame(() => {
                   label.classList.add("verified");
+                  UIOverlayManager.enable(triggerEl);
                   label.setAttribute("aria-checked", "true");
                   tamperWatcher.disconnect();
                   dispatchIfLegit(box, new CustomEvent("zapcaptcha-verified", {
@@ -2367,7 +2368,7 @@ function getDelays() {
       const triggerId = triggerEl.getAttribute("id");
       const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerId}"]`);
       if (!box) {
-        console.error("ZapCaptcha failed to find box for trigger:", triggerId); return;
+        zapMessage("e", "ZapCaptcha failed to find box for trigger:", triggerId); return;
       }
 
       const ts = parseInt(triggerEl.dataset.zcapVerifiedAt || "0", 10);
@@ -2380,7 +2381,7 @@ function getDelays() {
       const triggerId = triggerEl.getAttribute("id");
       const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerId}"]`);
       if (!box) {
-        console.error("ZapCaptcha failed to find box for trigger:", triggerId); return;
+         zapMessage("e", "ZapCaptcha failed to find box for trigger:", triggerId); return;
       }
     
       clearTimeoutWatcher(triggerEl);
@@ -2477,13 +2478,49 @@ function getDelays() {
   });
 
   // Need to lock up the UI during challenge
-  const disableUI = (() => {
-    return function disableUI() {
-      const overlay = document.createElement("div");
-      overlay.className = "zcaptcha-overlay";
-      overlay.setAttribute("aria-hidden", "true");
-      overlay.addEventListener("click", (e) => e.stopPropagation());
-      document.body.appendChild(overlay);
+  const UIOverlayManager = (() => {
+    let currentOwner = null;
+    let overlayEl = null;
+  
+    function disable(triggerEl) {
+      if (!triggerEl || currentOwner === triggerEl) return;
+  
+      // Remove any existing overlay first
+      if (overlayEl) overlayEl.remove();
+  
+      currentOwner = triggerEl;
+      overlayEl = document.createElement("div");
+      overlayEl.className = "zcaptcha-overlay";
+      overlayEl.setAttribute("aria-hidden", "true");
+      overlayEl.addEventListener("click", (e) => e.stopPropagation());
+  
+      document.body.appendChild(overlayEl);
+    }
+  
+    function enable(triggerEl) {
+      if (!triggerEl || triggerEl !== currentOwner) return;
+  
+      if (overlayEl) overlayEl.remove();
+      overlayEl = null;
+      currentOwner = null;
+    }
+  
+    function forceEnable() {
+      // Used when we want to fully clear any active overlay no matter who owns it
+      if (overlayEl) overlayEl.remove();
+      overlayEl = null;
+      currentOwner = null;
+    }
+  
+    function getOwner() {
+      return currentOwner;
+    }
+  
+    return {
+      disable,
+      enable,
+      forceEnable,
+      getOwner
     };
   })();
 
@@ -2702,7 +2739,18 @@ function getDelays() {
       clearTimeoutWatcher(triggerEl);
       removeTimeoutMessage(box);
       setTimeoutWatcher(document.querySelector(`.zcaptcha-box[data-target-id="${triggerEl.id}"]`), triggerEl);
-      callback?.();
+      const triggerExtra = Math.random() < 0.5;
+      if (triggerExtra) {
+        const triggerId = triggerEl?.id || (box?.getAttribute("data-target-id"));
+        if (triggerId) {
+          launchExtraClickShadow(triggerId, canvas || box, callback);
+        } else {
+           zapMessage("e", "launchExtraClickShadow: Missing trigger ID");
+          callback?.();
+        }
+      } else {
+        callback?.();
+      }
     });
   }
 
@@ -2841,7 +2889,18 @@ function getDelays() {
       const overlay = document.querySelector(".zcaptcha-overlay");
       tamperWatcher.disconnect();
       if (overlay) { fadeAndRemove(overlay); }
-      callback?.();
+      const triggerExtra = Math.random() < 0.5;
+      if (triggerExtra) {
+        const triggerId = triggerEl?.id || (box?.getAttribute("data-target-id"));
+        if (triggerId) {
+          launchExtraClickShadow(triggerId, canvas || box, callback);
+        } else {
+          zapMessage("e", "launchExtraClickShadow: Missing trigger ID");
+          callback?.();
+        }
+      } else {
+        callback?.();
+      }
     });
 
     function roundRect(ctx, x, y, w, h, r) {
@@ -2876,6 +2935,89 @@ function getDelays() {
       }
     });
     img.id; // Trigger
+  }
+  
+  function launchExtraClickShadow(triggerId, el, finalCallback) {
+    if (el._raf) cancelAnimationFrame(el._raf);
+  
+    // Cancel existing timeout and mark shadow mode
+    const existingTimeout = timeoutMap.get(el);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      timeoutMap.delete(el);
+    }
+  
+    // Mark shadow challenge active
+    extraMap.set(el, true);
+  
+    UIOverlayManager.disable(el);
+  
+    const host = document.createElement("div");
+    host.style.position = "absolute";
+    host.style.zIndex = "10002";
+  
+    const rect = el.getBoundingClientRect();
+    host.style.left = `${rect.left + window.scrollX}px`;
+    host.style.top = `${rect.top + window.scrollY}px`;
+    host.style.width = `${rect.width}px`;
+    host.style.height = `${rect.height}px`;
+  
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: "closed" });
+  
+    let remaining = Math.floor(getCryptoFloat(1, 7));
+  
+    const container = document.createElement("div");
+    container.style.width = "100%";
+    container.style.height = "100%";
+    container.style.background = "#111";
+    container.style.color = "#fff";
+    container.style.display = "flex";
+    container.style.flexDirection = "column";
+    container.style.alignItems = "center";
+    container.style.justifyContent = "center";
+    container.style.fontSize = "18px";
+    container.style.borderRadius = "8px";
+    container.style.cursor = "pointer";
+    container.style.userSelect = "none";
+    container.textContent = `Click ${remaining} more time${remaining > 1 ? 's' : ''}`;
+  
+    container.addEventListener("click", () => {
+      remaining--;
+      if (remaining > 0) {
+        container.textContent = `Click ${remaining} more time${remaining > 1 ? 's' : ''}`;
+      } else {
+        clearTimeout(killTimeout);
+        host.remove();
+        el.remove();
+  
+        // Completion cleanup
+        extraMap.delete(el);
+        UIOverlayManager.enable(el);
+        finalCallback?.();
+      }
+    });
+  
+    shadow.appendChild(container);
+  
+    const killTimeout = setTimeout(() => {
+      // Timeout cleanup
+      zapMessage("w", "Extra click challenge expired");
+      extraMap.delete(el);
+      
+      // Show message
+      const targetBox = document.querySelector(`.zcaptcha-box[data-target-id="${triggerId}"]`);
+      if (targetBox) { showTimeoutMessage(targetBox, 10); }
+      else { zapMessage("e","Shadow timeout box not found for:", el.id); }
+      
+      UIOverlayManager.enable(el);
+      fadeAndRemove(host);
+      fadeAndRemove(el);
+  
+      document.dispatchEvent(new CustomEvent("zapcaptcha-extra-expired", {
+        detail: { triggeredAt: Date.now(), target: el }
+      }));
+    }, 10000);
   }
   
   // False positives on mobile and with iframes
