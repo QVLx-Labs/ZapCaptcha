@@ -1396,7 +1396,7 @@ function isTorConnectionSpeedSuspicious() {
 }
 
 function isProbablyMobile() {
-  return /iPhone|iPad|Android/i.test(navigator.userAgent);
+  return /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
 }
 
 // Ban Tor browser if detected. Updated to be shadowed.
@@ -2025,6 +2025,8 @@ function getDelays() {
   const verifiedMap = new Map();
   const timeoutMap = new WeakMap();
   const signalMap = new WeakMap();
+  const canvasMap = new WeakMap();
+  const bouncerMap = new WeakMap();
   
   const NONCE_COOKIE_PREFIX = "zc_";
 
@@ -2197,17 +2199,19 @@ function getDelays() {
       }, 6000); // Remove after 6s, tweak as needed
       
       // Destroy DOM mode bouncer if exists
-      const bouncer = trueBox.querySelector(".zcaptcha-bouncer");
+      const bouncer = bouncerMap.get(triggerEl);
       if (bouncer) {
         if (bouncer._raf) cancelAnimationFrame(bouncer._raf);
         fadeAndRemove(bouncer);
+        bouncerMap.delete(triggerEl); // cleanup
       }
       
       // Destroy canvas if exists
-      const canvas = trueBox.querySelector("canvas");
+      const canvas = canvasMap.get(triggerEl);
       if (canvas) {
         if (canvas._raf) cancelAnimationFrame(canvas._raf);
         canvas.remove();
+        canvasMap.delete(triggerEl); // cleanup
       }
         
       // Remove overlay if no other CAPTCHA is currently verified and within timeout
@@ -2585,6 +2589,7 @@ function getDelays() {
       </div>
     `;
     document.body.appendChild(box);
+    bouncerMap.set(triggerEl, box);
     animateBox(box, triggerEl, callback, delays, tamperWatcher); // Bouncer challenge
   }
 
@@ -2617,9 +2622,10 @@ function getDelays() {
        x = getCryptoFloat(0, boundsWidth - width);
        y = getCryptoFloat(0, boundsHeight - height);
     }
-
-    let dx = getCryptoFloat(1.5, 3.5);
-    let dy = getCryptoFloat(1.5, 3.5);
+    let speedScale = 1.0;
+    if (isProbablyMobile()) { speedScale = 0.3 };
+    let dx = getCryptoFloat(1.5, 3.5) * speedScale;
+    let dy = getCryptoFloat(1.5, 3.5) * speedScale;
     let jitterCounter = 0;
 
     const move = () => {
@@ -2662,14 +2668,36 @@ function getDelays() {
     let clicked = false;
     const shownAt = Date.now();
 
-    box.addEventListener("click", () => {
-      if (clicked || Date.now() - shownAt < delays.click) { return; }
+    box.addEventListener("click", function (e) {
+      if (clicked || Date.now() - shownAt < delays.click) return;
+    
+      const rect = box.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+    
+      // Define hitbox of the fake checkbox (from HTML layout)
+      const boxX = 10;   // relative to .zcaptcha-left padding
+      const boxY = 10;   // estimated Y offset of checkbox inside .zcaptcha-left
+      const boxSize = 64;
+      const hitPadding = 8;
+    
+      const inBox =
+        clickX >= boxX - hitPadding &&
+        clickX <= boxX + boxSize + hitPadding &&
+        clickY >= boxY - hitPadding &&
+        clickY <= boxY + boxSize + hitPadding;
+    
+      if (!inBox) {
+        zapMessage("w", "Click outside DOM CAPTCHA checkbox zone");
+        return;
+      }
+    
       clicked = true;
       cancelAnimationFrame(box._raf);
       mo.disconnect();
       fadeAndRemove(box);
       const overlay = document.querySelector(".zcaptcha-overlay");
-      if (overlay) { fadeAndRemove(overlay); }
+      if (overlay) fadeAndRemove(overlay);
       tamperWatcher.disconnect();
       clearTimeoutWatcher(triggerEl);
       removeTimeoutMessage(box);
@@ -2681,6 +2709,7 @@ function getDelays() {
   // This is obvious but, canvas mode only
   function launchZcaptchaCanvas(triggerEl, delays, callback, tamperWatcher) {
     const canvas = document.createElement("canvas");
+    canvasMap.set(triggerEl, canvas);
     canvas.width = window.innerWidth < 330 ? 280 : window.innerWidth < 360 ? 300 : 330;
     canvas.height = window.innerHeight < 120 ? 90 : 100;
     canvas.style.position = "absolute";
@@ -2719,9 +2748,10 @@ function getDelays() {
         x = getCryptoFloat(0, Math.max(0, document.documentElement.clientWidth - canvas.width));
         y = getCryptoFloat(0, Math.max(0, window.innerHeight - canvas.height));
       }
-
-      let dx = getCryptoFloat(1.5, 3.5);
-      let dy = getCryptoFloat(1.5, 3.5);
+      let speedScale = 1.0;
+      if (isProbablyMobile()) { speedScale = 0.3 };
+      let dx = getCryptoFloat(1.5, 3.5) * speedScale;
+      let dy = getCryptoFloat(1.5, 3.5) * speedScale;
       let jitterCounter = 0;
 
       const drawFrame = () => {
@@ -2785,8 +2815,26 @@ function getDelays() {
     const shownAt = Date.now();
     let clicked = false;
 
-    canvas.addEventListener("click", () => {
+    canvas.addEventListener("click", function(e) {
       if (clicked || Date.now() - shownAt < delays.click) { return ; }
+      // Adding some anti-bot
+      const rect = canvas.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+    
+      // Define checkbox bounds with a bit of leeway
+      const boxX = 26;
+      const boxY = 40;
+      const boxSize = 64;
+      const hitPadding = 10;
+    
+      const inBox =
+        clickX >= boxX - hitPadding &&
+        clickX <= boxX + boxSize + hitPadding &&
+        clickY >= boxY - hitPadding &&
+        clickY <= boxY + boxSize + hitPadding;
+    
+      if (!inBox) { return; }
       clicked = true;
       cancelAnimationFrame(canvas._raf);
       fadeAndRemove(canvas);
