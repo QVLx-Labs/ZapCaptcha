@@ -223,7 +223,8 @@ let zapFlags = (() => {
     serverMode:              flags["servermode"]              ?? false,
     serverLock:              flags["serverlock"]              ?? false,
     clickDelay:              flags["clickdelay"]              ?? false,
-    spawnDelay:              flags["spawndelay"]              ?? false
+    spawnDelay:              flags["spawndelay"]              ?? false,
+    frictionLess:            flags["frictionless"]            ?? false
   };
   if (!finalFlags.serverMode && finalFlags.serverLock) { finalFlags.serverLock = false; }
   zapFlags.lock(finalFlags);
@@ -255,7 +256,8 @@ let zapFlags = (() => {
     serverLock,
     clickDelay,
     spawnDelay,
-    extraChallenges
+    extraChallenges,
+    frictionLess
   } = zapFlags.get();
 
   Object.defineProperty(window, "ZapFlags", {
@@ -1410,7 +1412,7 @@ function isTorConnectionSpeedSuspicious() {
 // Must use fingerprinting; exit node crosscheck
 // not possible for obvious reasons of IP masking 
 (async function detectTorBrowser() {
-  if (!zapFlags.getFlag("torCheck")) return;
+  if (!zapFlags.getFlag("torCheck") && !zapFlags.getFlags("frictionLess")) return;
 
   const uaHit = isTorUserAgent(); // strong signal
   const hardBlocked = uaHit || isTorWebGLBlocked(); // hard fail cases
@@ -1465,6 +1467,7 @@ function isTorConnectionSpeedSuspicious() {
     // Inject template into shadow root
     shadow.appendChild(template.content.cloneNode(true));
   }
+  return torScore;
 })();
 
 // Helper: check for time spoof (To be deprecated)
@@ -1547,7 +1550,7 @@ function isWebRTCLeakBlocked() {
 
 // Detect VPN but only after IP is available
 (function detectVPN() {
-  if (!zapFlags.getFlag("vpnCheck")) return;
+  if (!zapFlags.getFlag("vpnCheck") && !zapFlags.getFlag("frictionLess")) return;
 
   document.addEventListener("DOMContentLoaded", async () => {
     let score = 0;
@@ -1581,6 +1584,7 @@ function isWebRTCLeakBlocked() {
     } else {
       zapMessage("i", "ZapCaptcha: No VPN/anonymizer detected (score: " + score + ")");
     }
+    return score;
   });
 })();
 
@@ -1921,6 +1925,7 @@ Object.defineProperty(window, "preventTextCopyAndRightClick", {
       zapMessage("w", "Possible stealth headless environment");
     }
   });
+  return block;
 })();
 
 // Detect element CSS tampering
@@ -1961,6 +1966,21 @@ Object.defineProperty(window, "preventTextCopyAndRightClick", {
   performCheck(); // Initial check
   setInterval(performCheck, 10000); // Poll every x seconds
 })();
+
+// Detect absence of any human interaction
+function checkHumanInteraction() {
+  let interacted = false;
+  const markInteracted = () => { interacted = true; };
+
+  window.addEventListener("mousemove", markInteracted, { once: true });
+  window.addEventListener("touchstart", markInteracted, { once: true });
+  window.addEventListener("keydown", markInteracted, { once: true });
+
+  if (!interacted) {
+    console.warn("No human interaction detected. Possible headless bot.");
+    return true;
+  }
+}
 
 // Periodic zapcaptcha.css Integrity Check
 (async function checkZapCaptchaCSS() {
@@ -2185,7 +2205,12 @@ function getDelays() {
 
     clearTimeoutWatcher(triggerEl);
   
-    if (typeof extraMap !== "undefined" && extraMap.get(triggerEl)) {
+    // Only skip if this is a frictionless box and extraMap marks it
+    if (
+      box?.dataset.zcapFrictionless === "1" &&
+      typeof extraMap !== "undefined" &&
+      extraMap.get(triggerEl)
+    ) {
       return;
     }
   
@@ -2253,12 +2278,236 @@ function getDelays() {
   
     timeoutMap.set(triggerEl, timeoutId);
   }
+  
+  // Capture submits
+  document.addEventListener("submit", function(e) {
+    const form = e.target;
+    const box = form.closest(".zcaptcha-box[data-zcap-frictionless='1']");
+    if (!box) return;
+  
+    const triggerId = box.dataset.targetId;
+    const trigger = document.getElementById(triggerId);
+  
+    const isVerified = trigger && verifiedMap.get(trigger);
+    if (!isVerified) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      zapMessage("i", "Form blocked: frictionless CAPTCHA not yet passed.");
+    }
+  }, true);
+  
+  // Block keys before checks so nothing gets through
+  (function trapKeysDuringFrictionless() {
+    function trap(e) {
+      if (document.querySelector('.zcaptcha-box[data-zcap-frictionless="1"]')) {
+        const isVerified = [...document.querySelectorAll('.zcaptcha-box[data-zcap-frictionless="1"]')].every(box => {
+          const trigger = document.getElementById(box.dataset.targetId);
+          return verifiedMap.get(trigger);
+        });
+  
+        if (!isVerified) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return false;
+        }
+      }
+    }
+  
+    window.addEventListener("keydown", trap, true);
+    window.addEventListener("keypress", trap, true);
+    window.addEventListener("keyup", trap, true);
+  })();
+
+  async function launchFrictionlessMode() {
+    const boxes = Array.from(document.querySelectorAll('.zcaptcha-box[data-zcap-frictionless="1"]'));
+    if (!boxes.length) return;
+    
+    for (const box of boxes) {
+      const trigger = document.querySelector(`[id="${box.dataset.targetId}"]`);
+    
+      // Blur active
+      if (document.activeElement && box.contains(document.activeElement)) { document.activeElement.blur(); }
+    
+      // Also disable all inputs inside the box
+      const inputs = box.querySelectorAll("input, textarea, button, select");
+      inputs.forEach(input => input.setAttribute("disabled", "true"));
+    }
+    
+    // Disable all trigger buttons while scanning
+    boxes.forEach(box => {
+      const trigger = document.querySelector(`[id="${box.dataset.targetId}"]`);
+      if (trigger) UIOverlayManager.softDisable(trigger);
+    });
+  
+    const overlays = [];
+  
+    await new Promise(r => requestAnimationFrame(() => { requestAnimationFrame(r); })); // Need to wait
+  
+    // Create overlays
+    for (const box of boxes) {
+      const boxRect = box.getBoundingClientRect();
+      const host = document.createElement("div");
+  
+      host.style.position = "absolute";
+      host.style.top = `${boxRect.top + window.scrollY}px`;
+      host.style.left = `${boxRect.left + window.scrollX}px`;
+      host.style.width = `${boxRect.width}px`;
+      host.style.height = `${boxRect.height}px`;
+      host.style.zIndex = "9999";
+      host.style.pointerEvents = "none";
+      host.style.borderRadius = getComputedStyle(box).borderRadius || "8px";
+      host.dataset.zapOkShadow = "1";
+  
+      document.body.appendChild(host);
+      const shadow = host.attachShadow({ mode: "open" });
+      shadow.innerHTML = `
+        <style>
+          .frictionless-mask {
+            width: 100%;
+            height: 100%;
+            background: yellow;
+            font-weight: bold;
+            font-style: italic;
+            opacity: 0.8;
+            border: 2px solid black;
+            border-radius: inherit;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: inherit;
+            font-size: 26px;
+            color: black;
+          }
+        </style>
+        <div class="frictionless-mask" id="flmask">Analyzing</div>
+      `;
+      const span = shadow.getElementById("flmask");
+      let dotState = 0;
+      const interval = setInterval(() => {
+        dotState = (dotState + 1) % 10;
+        span.textContent = "Analyzing" + ".".repeat(dotState);
+      }, 500);
+      overlays.push({ host, interval });
+    }
+    
+    async function realignOverlays() {
+      for (let i = 0; i < boxes.length; i++) {
+        const box = boxes[i];
+        const host = overlays[i].host;
+        const boxRect = box.getBoundingClientRect();
+
+        host.style.top = `${boxRect.top + window.scrollY}px`;
+        host.style.left = `${boxRect.left + window.scrollX}px`;
+        host.style.width = `${boxRect.width}px`;
+        host.style.height = `${boxRect.height}px`;
+      }
+    }
+    
+    await new Promise(r => requestAnimationFrame(r));
+    realignOverlays();
+    
+    // Adjust when screen rescale, move, or viewport changes
+    window.addEventListener("resize", realignOverlays);
+    window.addEventListener("scroll", realignOverlays, true);
+    
+    // Optionally: set interval fallback if OS doesn't dispatch resize
+    const fallbackTimer = setInterval(realignOverlays, 500);
+  
+    // Run checks
+    const DURATION = 25000;
+    const startTime = Date.now();
+    const scores = [];
+  
+    const collectScore = async (fn) => {
+      try {
+        const result = await fn();
+        if (typeof result === "number") scores.push(result);
+      } catch (e) {
+        zapMessage("w", "Frictionless check failed", e);
+      }
+    };
+  
+    const checks = [
+      () => detectTorBrowser(),
+      () => detectVPNS(),
+      () => detectHeadlessBrowser().then(b => b ? 1 : 0),
+      () => checkHumanInteraction()
+    ];
+  
+    await Promise.allSettled(checks.map(collectScore));
+  
+    const avgScore = scores.reduce((a, b) => a + b, 0) / (scores.length || 1);
+    const passed = avgScore >= 1.5 && scores.length >= 3;
+    const delayRemaining = Math.max(0, DURATION - (Date.now() - startTime));
+  
+    setTimeout(async () => {
+      try {
+        overlays.forEach(({ host, interval }) => {
+          clearInterval(interval);
+          host.remove();
+        });
+  
+        // Uncomment to enforce passing
+        // if (!passed) {
+        //   await zapLockout("Frictionless CAPTCHA failed");
+        //   return;
+        // }
+  
+        for (const box of boxes) {
+          const triggerEl = document.querySelector(`[id="${box.dataset.targetId}"]`);
+          if (!triggerEl) continue;
+  
+          verifiedMap.set(triggerEl, true);
+          triggerEl.dataset.zcapVerifiedAt = Date.now();
+          await setNonceAsync(box);
+  
+          const label = box.querySelector(".zcaptcha-label");
+          if (label) {
+            label.classList.add("verified");
+            label.setAttribute("aria-checked", "true");
+          }
+  
+          dispatchIfLegit(box, new CustomEvent("zapcaptcha-verified", {
+            detail: { timestamp: Date.now(), id: getStorageName(box) }
+          }));
+  
+          UIOverlayManager.softEnable(triggerEl);
+          clearInterval(fallbackTimer);
+          window.removeEventListener("resize", realignOverlays);
+          window.removeEventListener("scroll", realignOverlays, true);
+        }
+  
+      } catch (err) {
+        zapMessage("e", "Frictionless finalization error", err);
+      }
+    }, delayRemaining);
+  }
+  
+  if (zapFlags.getFlag("frictionLess")) {
+    window.addEventListener("DOMContentLoaded", () => {
+      setTimeout(() => {
+        launchFrictionlessMode();
+      }, 1000); // slight delay if needed
+    });
+  }
 
   window.ZapCaptcha = {
     async verify(triggerEl, onSuccess) {
       const DELAYS = getDelays();
       const triggerId = triggerEl.getAttribute("id");
       const box = document.querySelector(`.zcaptcha-box[data-target-id="${triggerEl.id}"]`);
+
+      // Frictionless CAPTCHAs here
+      if (box?.dataset.zcapFrictionless === "1" && zapFlags.getFlag("frictionLess")) {
+        if (verifiedMap.get(triggerEl)) {
+          zapMessage("i", "ZapCaptcha frictionless verified (pre-pass)");
+          onSuccess?.();
+          return;
+        } else {
+          zapMessage("w", "ZapCaptcha not yet frictionless-verified");
+          return; // Don't launch challenge
+        }
+      }
       
       // Watchdog definition
       const tamperWatcher = new MutationObserver((mutations) => {
@@ -2332,7 +2581,6 @@ function getDelays() {
           verifiedMap.set(triggerEl, true);
           triggerEl.dataset.zcapVerifiedAt = Date.now();
           const newNonce = generateNonce();
-          //setNonceSync(box, newNonce);
           await setNonceAsync(box);
           const label = box.querySelector(".zcaptcha-label");
           if (label) {
@@ -2504,6 +2752,26 @@ function getDelays() {
   
       document.body.appendChild(overlayEl);
     }
+    
+    function softDisable(triggerEl) {
+      if (!triggerEl) return;
+      triggerEl.dataset.zapUiDisabled = "1";
+      triggerEl.setAttribute("aria-disabled", "true");
+      triggerEl.setAttribute("disabled", "true");
+      triggerEl.style.pointerEvents = "none";
+      triggerEl.style.opacity = "0.5";
+      triggerEl.style.filter = "grayscale(100%)";
+    };
+    
+    function softEnable(triggerEl) {
+      if (!triggerEl) return;
+      delete triggerEl.dataset.zapUiDisabled;
+      triggerEl.removeAttribute("aria-disabled");
+      triggerEl.removeAttribute("disabled");
+      triggerEl.style.pointerEvents = "";
+      triggerEl.style.opacity = "";
+      triggerEl.style.filter = "";
+    };
   
     function enable(triggerEl) {
       if (!triggerEl || triggerEl !== currentOwner) return;
@@ -2527,6 +2795,8 @@ function getDelays() {
     return {
       disable,
       enable,
+      softDisable,
+      softEnable,
       forceEnable,
       getOwner
     };
