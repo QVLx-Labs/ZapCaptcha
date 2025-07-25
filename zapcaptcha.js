@@ -25,17 +25,10 @@ const importPemPublicKey = (() => {
                      .replace(/-----END PUBLIC KEY-----/, "")
                      .replace(/\s+/g, "");
       const binaryDer = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-      return await crypto.subtle.importKey(
-        "spki",
-        binaryDer.buffer,
-        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-        true,
-        ["verify"]
-      );
-    } catch (err) {
-      console.error("ZapCaptcha: importPemPublicKey failed:", err);
-      return null;
+      return await crypto.subtle.importKey("spki",  binaryDer.buffer,
+        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, true, ["verify"]);
     }
+    catch (err) { console.error("ZapCaptcha: importPemPublicKey failed:", err); return null; }
   };
 })();
 
@@ -70,23 +63,14 @@ const nonce = () => {
 const validateZapPublicKey = (() => {
   return async function(pem) {
     try {
-      if (
-        !pem ||
-        typeof pem !== "string" ||
-        !pem.includes("-----BEGIN PUBLIC KEY-----") ||
-        !pem.includes("-----END PUBLIC KEY-----")
-      ) {
-        return { valid: false };
-      }
+      if (!pem || typeof pem !== "string" || !pem.includes("-----BEGIN PUBLIC KEY-----") ||
+        !pem.includes("-----END PUBLIC KEY-----")) { return { valid: false }; }
 
       const pubKeyObj = await importPemPublicKey(pem);
       if (!pubKeyObj) return { valid: false };
 
       const jwk = await crypto.subtle.exportKey("jwk", pubKeyObj);
-      if (jwk.kty !== "RSA" ||
-          typeof jwk.n !== "string") {
-            return { valid: false };
-          }
+      if (jwk.kty !== "RSA" || typeof jwk.n !== "string") { return { valid: false }; }
 
       const modulusBytes = base64urlToBytes(jwk.n);
       if (modulusBytes.length !== 256) {
@@ -101,10 +85,8 @@ const validateZapPublicKey = (() => {
                pubKeyObj,
                fingerprint
              };
-    } catch (err) {
-      console.error("ZapCaptcha: validateZapPublicKey failed:", err);
-      return { valid: false };
     }
+    catch (err) { console.error("validateZapPublicKey failed:", err); return { valid: false }; }
   };
 })();
 
@@ -119,21 +101,9 @@ const hashZapConfig = (() => {
   };
 })();
 
-let zapReadyResolver;
-const zapReadyPromise = new Promise(resolve => {
-  zapReadyResolver = resolve;
-});
-
 let zapState = (() => {
-  let _state = {
-    active: false,
-    nonce: null,
-    configHash: null,
-    pubKey: null,
-    pubKeyObj: null,
-    pubKeyFingerprint: null,
-    ephemeral: null
-  };
+  let _state = { active: false, nonce: null, configHash: null, pubKey: null,  pubKeyObj: null,
+    pubKeyFingerprint: null, ephemeral: null };
 
   return Object.freeze({
     init({ nonce, configHash, pubKey, pubKeyObj, pubKeyFingerprint, ephemeral }) {
@@ -145,12 +115,8 @@ let zapState = (() => {
       _state.pubKeyFingerprint = pubKeyFingerprint;
       _state.ephemeral = ephemeral;
     },
-    get() {
-      return _state;
-    },
-    isActive() {
-      return _state.active;
-    }
+    get() { return _state; },
+    isActive() { return _state.active; }
   });
 })();
 
@@ -187,11 +153,8 @@ let zapFlags = (() => {
                 (rawVal.toLowerCase() === "false" || rawVal === "0") ? false : null;
 
     if (val === null) continue;
-    if (key === "allsec") {
-      globalSet = val;
-    } else {
-      flags[key] = val;
-    }
+    if (key === "allsec") { globalSet = val; }
+    else { flags[key] = val; }
   }
 
   const finalFlags = {
@@ -263,16 +226,11 @@ let zapFlags = (() => {
   Object.defineProperty(window, "ZapFlags", {
     get() {
       zapMessage("w", "ZapCaptcha: Access to ZapFlags is restricted.");
-      return {
-        has: (k) => Object.prototype.hasOwnProperty.call(zapFlags.get(), k)
-      };
-    },
-    configurable: false,
-    enumerable: false
+      return { has: (k) => Object.prototype.hasOwnProperty.call(zapFlags.get(), k) };
+    }, configurable: false, enumerable: false
   });
   
   if (!zapFlags.getFlag("serverMode")) return;
-  
   const rawKey = metaPubKey?.content?.trim() ?? "";
   const { valid, pubKeyObj, fingerprint } = await validateZapPublicKey(rawKey);
   const configHash = await hashZapConfig(finalFlags, valid ? fingerprint : "");
@@ -289,14 +247,9 @@ let zapFlags = (() => {
     ["sign", "verify"]
   );
 
-  zapState.init({
-    nonce,
-    configHash,
-    pubKey: valid ? rawKey : null,
-    pubKeyObj: valid ? pubKeyObj : null,
-    pubKeyFingerprint: valid ? fingerprint : null,
-    ephemeral: valid ? Object.freeze(ephemeralKeyPair) : null
-  });
+  zapState.init({ nonce, configHash, pubKey: valid ? rawKey : null, 
+    pubKeyObj: valid ? pubKeyObj : null,  pubKeyFingerprint: valid ? fingerprint : null,
+    ephemeral: valid ? Object.freeze(ephemeralKeyPair) : null });
   
   if (zapFlags.getFlag("serverMode")) {
     await getZapID(); // Force zapID generation early
@@ -317,23 +270,17 @@ let zapFlags = (() => {
       };
     })();
   }
-  zapReadyResolver();
   document.dispatchEvent(new CustomEvent("zapcaptcha-ready")); // TBD
 })();
 
-// This function handles console printing to keep things clean
-(() => {
+(() => { // This function handles console printing to keep things clean
   const zapMessageImpl = function zapMessage(level, ...args) {
     if (!zapFlags.getFlag("debugMessages")) return zapMessageImpl;
     const prefix = "ZapCaptcha: ";
     switch (level) {
-      case "e":
-        console.error(prefix, ...args); break;
-      case "i":
-        console.info(prefix, ...args); break;
-      case "w":
-      default:
-        console.warn(prefix, ...args); break;
+      case "e": console.error(prefix, ...args); break;
+      case "i": console.info(prefix, ...args); break;
+      case "w": default: console.warn(prefix, ...args); break;
     }
     return zapMessageImpl;
   };
@@ -435,9 +382,7 @@ function injectZapChecksumBadge(checksum) {
   try {
     const checksum = await sha384();
     injectZapChecksumBadge(checksum);
-  } catch (err) {
-    zapMessage("w", "ZapCaptcha: Failed to compute checksum badge:", err);
-  }
+  } catch (err) { zapMessage("w", "ZapCaptcha: Failed to compute checksum badge:", err); }
 })();
 
 const unlockState = (() => {
@@ -445,41 +390,30 @@ const unlockState = (() => {
     if (zapFlags.getFlag("localLock")) {
       try {
         localStorage.removeItem("zapLockedOut");
-        if (localStorage.getItem("zapLockedOut") === "1")
-          throw new Error("localStorage unlock failed");
-      } catch (e) {
-        zapMessage("w", "localUnlock failed", e);
-      }
+        if (localStorage.getItem("zapLockedOut") === "1") throw new Error("localStorage unlock failed");
+      } catch (e) { zapMessage("w", "localUnlock failed", e); }
     }
 
     if (zapFlags.getFlag("sessionLock")) {
       try {
         sessionStorage.removeItem("zapLockedOut");
-        if (sessionStorage.getItem("zapLockedOut") === "1")
-          throw new Error("sessionStorage unlock failed");
-      } catch (e) {
-        zapMessage("w", "sessionUnlock failed", e);
-      }
+        if (sessionStorage.getItem("zapLockedOut") === "1") throw new Error("sessionStorage unlock failed");
+      } catch (e) { zapMessage("w", "sessionUnlock failed", e); }
     }
 
     if (zapFlags.getFlag("cookieLock")) {
       try {
         document.cookie = "zapLocked=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=strict";
         const match = document.cookie.match(/(?:^|;\s*)zapLocked=([^;]+)/);
-        if (match && match[1] === "1")
-          throw new Error("cookie unlock failed");
-      } catch (e) {
-        zapMessage("w", "cookieUnlock failed", e);
-      }
+        if (match && match[1] === "1") throw new Error("cookie unlock failed");
+      } catch (e) { zapMessage("w", "cookieUnlock failed", e); }
     }
 
     // Emergency memory and DOM unlock
     try {
       delete window.__zapHardLock;
       document.body.removeAttribute("data-zaplocked");
-    } catch (e) {
-      zapMessage("w", "memory/DOM unlock failed", e);
-    }
+    } catch (e) { zapMessage("w", "memory/DOM unlock failed", e); }
 
     window.dispatchEvent(new Event("zapUnlock")); // User hook
   };
@@ -527,9 +461,7 @@ const lockState = (() => {
 // Detect most mobile devices (I think)
 const isProbablyMobile = (() => {
   const test = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i;
-  const fn = function() {
-    return test.test(navigator.userAgent);
-  };
+  const fn = function() { return test.test(navigator.userAgent); };
   return fn;
 })();
 
@@ -562,22 +494,15 @@ const verifyZapSignature = (() => {
       const sigBytes = base64urlToBytes(signatureB64);
 
       const verified = await crypto.subtle.verify(
-        { name: "RSASSA-PKCS1-v1_5" },
-        pubKey,
-        sigBytes,
-        encoded
-      );
+        { name: "RSASSA-PKCS1-v1_5" }, pubKey, sigBytes, encoded);
       return verified;
     } catch (err) {
-      /*
+      /* TBD: send it all over but want to study performance first
         const shortenedPayload = payloadStr.slice(0, 300); // trim to avoid overloading server
         const shortenedSig = signatureB64.slice(0, 100);   // trim for same reason
       
-        const desc = [
-          "Signature mismatch.",
-          "Payload: " + shortenedPayload,
-          "Sig (b64): " + shortenedSig
-        ].join("\n");
+        const desc = [ "Signature mismatch.", "Payload: " + shortenedPayload,
+          "Sig (b64): " + shortenedSig].join("\n");
         await zapLockout("Signature verification failed", desc);
        */
        await zapLockout("Signature verification failed");
@@ -730,33 +655,23 @@ const isBanned = (() => {
         const zapID = await getZapID();
         
         const response = await zapSend("checkLock", {
-                  zapID,
-                  info: "session-init",
-                  ua: navigator.userAgent,
-                  lang: navigator.language
-                });
+          zapID,
+          info: "session-init",
+          ua: navigator.userAgent,
+          lang: navigator.language
+        });
 
         isLocked = response.locked;
         
-        if (zapFlags.getFlag("serverLock")) {
-          if (isLocked === null) {
-             zapMessage("w", "ZapCaptcha: zapSend returned null");
-            return null;
-          }
-  
-          if (isLocked) {
-            await zapLockout("Server found banned client");
-            return true;
-          }
-          else {
-            await zapUnlock("Server found allowed client"); 
-            return false;
-          }
+        if (zapFlags.getFlag("serverLock")) { // Can probably remove this defensive eventually
+          if (isLocked === null) { zapMessage("w", "zapSend returned null"); return null; }
+          if (isLocked) { await zapLockout("Server found banned client"); return true; }
+          else { await zapUnlock("Server found allowed client"); return false; }
           return response.locked;
         }
       } catch (err) {
-          zapMessage("e", "ZapCaptcha: Server check failed:", err);
-          return false; // fail open to avoid deadlocks
+        zapMessage("e", "ZapCaptcha: Server check failed:", err);
+        return false; // fail open to avoid deadlocks
       }
     }
 
@@ -773,9 +688,7 @@ const isBanned = (() => {
 })();
 
 // Reload page on back/forward navigation to ensure CAPTCHA state resets
-window.addEventListener("pageshow", function (e) {
-  if (e.persisted) location.reload();
-});
+window.addEventListener("pageshow", function (e) { if (e.persisted) location.reload(); });
 
 // Disable all registered buttons until CAPTCHA loads
 document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.disabled = true);
@@ -784,30 +697,18 @@ document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.disabled = tr
 const zapStyleSheet = (() => {
   const style = document.createElement("style");
   const cspNonce = document.querySelector('meta[name="csp-nonce"]')?.content;
-  if (cspNonce) {
-    style.setAttribute("nonce", cspNonce);
-  }
+  if (cspNonce) { style.setAttribute("nonce", cspNonce); }
   style.setAttribute("data-zapcaptcha", "true");
 
   // Safe CSP-compatible fix (Nonce compatible)
   try {
     document.head.appendChild(style);
-    if (!style.sheet) {
-      zapMessage("w", "CSSOM sheet could not be attached (CSP)");
-      return null;
-    }
+    if (!style.sheet) { zapMessage("w", "CSSOM sheet not attaching (CSP)"); return null; }
     return style.sheet;
-  } catch (e) {
-    zapMessage("e", "Failed to create stylesheet under CSP:", e);
-    return null;
-  }
+  } catch (e) { zapMessage("e", "Failed to create sheet under CSP:", e); return null; }
 })();
 
-insertZapRule(".zcap-trap", `
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-`);
+insertZapRule(".zcap-trap", `position: absolute; opacity: 0; pointer-events: none;`);
 
 const getCryptoFloat = (() => {
   return function getCryptoFloat(min, max) {
@@ -823,23 +724,16 @@ const zapHardEject = (() => {
     try {
       document.documentElement.innerHTML = "";
       document.body.offsetHeight; // force reflow
-
       location.replace("https://192.0.2.0");
     } catch {
-      try {
-        location.replace("about:blank");
-      } catch {
-        location.href = "about:blank";
-      }
+        try { location.replace("about:blank"); }
+        catch { location.href = "about:blank"; }
     }
   }
 
   return function ejectNow() {
-    try {
-      setTimeout(doEject, getCryptoFloat(30, 100));
-    } catch (err) {
-      zapMessage("e", "Hard eject failed:", err);
-    }
+    try { setTimeout(doEject, getCryptoFloat(30, 100)); }
+    catch (err) { zapMessage("e", "Hard eject failed:", err); }
   };
 })();
 
@@ -847,23 +741,20 @@ const handleServerResponse = (() => {
   return async function handleServerResponse(response) {
     try {
       if (!response || !response.payload || !response.signature) {
-        zapMessage("e", "Invalid or missing response payload/signature");
-        return;
+        zapMessage("e", "Invalid or missing response payload/signature"); return;
       }
 
       const serialized = JSON.stringify(response.payload);
       const isValid = await verifyZapSignature(serialized, response.signature);
 
-      if (!isValid) {
-        return;
-      }
+      if (!isValid) { return; }
       
       const isLocked = response.payload.locked;
       
       if (zapFlags.getFlag("serverMode")) {
         const cmd = response.payload.action;
         zapMessage("i", "command =", cmd);
-        if (zapFlags.getFlag("lockoutsEnabled") && (cmd === "lockUpdate")) { // Log and process 'locked' state
+        if (zapFlags.getFlag("lockoutsEnabled") && (cmd === "lockUpdate")) { // Process locked state
           if (isLocked === true) {
             await zapLockout("Lock commanded by server", ("Locked: " + response.payload.zapID));
           } else if (isLocked === false) {
@@ -871,16 +762,10 @@ const handleServerResponse = (() => {
             await zapUnlock("Unlock commanded by server", ("Unlocked: " + response.payload.zapID));
           }
         }
-        else if (cmd === "display") {
-          zapMessage("e", "Server cleared display");
-        }
-        else {
-         zapMessage("w", "Unknown server action:", cmd);
-        }
+        else if (cmd === "display") { zapMessage("e", "Server cleared display"); }
+        else { zapMessage("w", "Unknown server action:", cmd); }
       }
-    } catch (err) {
-      zapMessage("e", "Exception in handleServerResponse:", err);
-    }
+    } catch (err) { zapMessage("e", "Exception in handleServerResponse:", err); }
   };
 })();
 
@@ -904,7 +789,6 @@ const zapSend = (() => {
     if (event === "zapVerify") { // Only include configHash on zapVerify
       base.configHash = state?.configHash || "missing";
     }
-
     return base;
   }
 
@@ -923,10 +807,7 @@ const zapSend = (() => {
       };
   
       const state = await waitForKeys();
-      if (!state) {
-        zapMessage("e", "ZapCaptcha: state is undefined.");
-        return null;
-      }
+      if (!state) { zapMessage("e", "ZapCaptcha: state is undefined."); return null; }
   
       const payload = await preparePayload(event, data);
       const serialized = JSON.stringify(payload, null, 0);
@@ -934,30 +815,18 @@ const zapSend = (() => {
       const encoded = encoder.encode(serialized);
   
       const signatureBuffer = await crypto.subtle.sign(
-        { name: "RSASSA-PKCS1-v1_5" },
-        state.ephemeral.privateKey,
-        encoded
-      );
+        { name: "RSASSA-PKCS1-v1_5" }, state.ephemeral.privateKey, encoded);
   
       const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)))
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
+        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   
       const exportedEphemeral = await crypto.subtle.exportKey("jwk", state.ephemeral.publicKey);
-      const ephemeral = {
-        kty: "RSA",
-        e: exportedEphemeral.e,
-        n: exportedEphemeral.n
-      };
+      const ephemeral = { kty: "RSA", e: exportedEphemeral.e, n: exportedEphemeral.n };
   
       zapMessage("i", "Payload being sent:", JSON.stringify(payload, null, 2));
   
       const publicKeyMeta = document.querySelector('meta[name="zap-server-pubkey"]');
-      if (!publicKeyMeta || !publicKeyMeta.content) {
-        zapMessage("w", "Public key meta tag missing or empty");
-        return null;
-      }
+      if (!publicKeyMeta || !publicKeyMeta.content) { zapMessage("w", "Server Public key invalid"); return null; }
       const publicKey = publicKeyMeta.content;
   
       const response = await fetch("/zapcapture", {
@@ -968,8 +837,7 @@ const zapSend = (() => {
           signature: sigB64,
           ephemeral,
           publicKey: publicKey
-        }),
-        keepalive: true
+        }), keepalive: true
       });
   
       // Ensure the response is valid
@@ -992,9 +860,7 @@ const zapSend = (() => {
       
       await handleServerResponse(serverReply);  // Handle server response
       return serverReply;
-    } catch (err) {
-      zapMessage("e", "zapSend failed:", err);
-    }
+    } catch (err) { zapMessage("e", "zapSend failed:", err); }
   };
 })();
 
@@ -1020,11 +886,8 @@ const zapLockout = (() => {
       if (zapFlags.getFlag("softLock")) { zapSoftLock(); } // Cripple
       else { zapHardEject(); } // Kick
     } catch (e) {
-      try {
-        location.replace("about:blank");
-      } catch {
-        location.href = "about:blank";
-      }
+      try { location.replace("about:blank"); }
+      catch { location.href = "about:blank"; }
     }
   };
 })();
@@ -1319,10 +1182,7 @@ function checkHoneypotTraps() {
       (type === "submit") ? false :
       (val !== "");
 
-    if (suspicious) {
-      zapMessage("w", "Honeypot trap tripped:", el.name || el.id);
-      return false;
-    }
+    if (suspicious) { zapMessage("w", "Honeypot trap tripped:", el.name || el.id); return false; }
   }
   return true;
 }
@@ -1332,9 +1192,7 @@ function isTorUserAgent() {
   try {
     const ua = navigator.userAgent || "";
     return /TorBrowser|Firefox\/102\.0 ESR/.test(ua);
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 // Tor Detection Helper: Navigator fingerprint trap
@@ -1346,9 +1204,7 @@ function isTorNavigatorFingerprint() {
       typeof navigator.hardwareConcurrency === "undefined" ||
       typeof navigator.deviceMemory === "undefined"
     );
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 // Tor Detection Helper: Canvas fingerprint block
@@ -1360,9 +1216,7 @@ function isTorCanvasBlocked() {
     ctx.fillText("test", 10, 10);
     const data = canvas.toDataURL();
     return data.length < 100; // Tor usually blocks or gives tiny output
-  } catch {
-    return true;
-  }
+  } catch { return true; }
 }
 
 // Tor Detection Helper: Audio fingerprinting blocked
@@ -1370,18 +1224,14 @@ function isTorAudioBlocked() {
   try {
     const ctx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
     return false;
-  } catch {
-    return true;
-  }
+  } catch { return true; }
 }
 
 // Tor Detection Helper: Plugin trap (usually disabled)
 function isTorPluginTrap() {
   try {
     return navigator.plugins.length === 0;
-  } catch {
-    return true;
-  }
+  } catch { return true; }
 }
 
 // Tor Detection Helper: WebGL renderer check
@@ -1393,9 +1243,7 @@ function isTorWebGLBlocked() {
     const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
     const renderer = debugInfo && gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
     return !renderer || /mesa|software/i.test(renderer); // Common Tor fallback
-  } catch {
-    return true;
-  }
+  } catch { return true; }
 }
 
 // Tor Detection Helper: check for speed anomaly
@@ -1403,9 +1251,7 @@ function isTorConnectionSpeedSuspicious() {
   try {
     const type = navigator.connection?.effectiveType;
     return type === "slow-2g" || type === "2g" || !type;
-  } catch {
-    return true;
-  }
+  } catch { return true; }
 }
 
 // Ban Tor browser if detected. Updated to be shadowed.
@@ -1476,9 +1322,7 @@ function isTimezoneMismatch(ipData) {
     const sysTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
     const ipTZ = ipData.timezone || '';
     return ipTZ !== '' && sysTZ !== '' && ipTZ !== sysTZ;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 // VPN Detection Helper: check for known provider in ASN/ORG
@@ -1524,9 +1368,7 @@ function isLocaleMismatch(ipData) {
   try {
     const region = (navigator.language.split('-')[1] || '').toUpperCase();
     return ipData && ipData.country_code && region !== ipData.country_code.toUpperCase();
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 // Helper: check for type faking (To be deprecated)
@@ -1534,18 +1376,14 @@ function isConnectionTypeSuspicious() {
   try {
     const type = navigator.connection?.effectiveType || '';
     return ["unknown", "slow-2g", ""].includes(type);
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 // VPN Detection Helper: check RTC
 function isWebRTCLeakBlocked() {
   try {
     return typeof RTCPeerConnection === "undefined" || typeof navigator.mediaDevices === "undefined";
-  } catch {
-    return true;
-  }
+  } catch { return true; }
 }
 
 // Detect VPN but only after IP is available
@@ -1559,9 +1397,7 @@ function isWebRTCLeakBlocked() {
     try {
       const res = await fetch("https://ipapi.co/json/");
       ipData = await res.json();
-    } catch (err) {
-      zapMessage("w", "VPN Check: Failed to fetch IP info", err);
-    }
+    } catch (err) { zapMessage("w", "VPN Check: Failed to fetch IP info", err); }
 
     // Run checks
     if (isLocaleMismatch(ipData)) {
@@ -1579,11 +1415,8 @@ function isWebRTCLeakBlocked() {
       score += 2;
     }
 
-    if (score >= 3) {
-      zapLockout("VPN/Anonymizer detected");
-    } else {
-      zapMessage("i", "ZapCaptcha: No VPN/anonymizer detected (score: " + score + ")");
-    }
+    if (score >= 3) { zapLockout("VPN/Anonymizer detected"); }
+    else { zapMessage("i", "ZapCaptcha: No VPN/anonymizer detected (score: " + score + ")"); }
     return score;
   });
 })();
@@ -1593,9 +1426,7 @@ function freezeDOM() {
   try {
     Object.freeze(document.body);
     Object.freeze(document);
-  } catch (err) {
-    zapMessage("e", "ZapCaptcha freezeDOM failed:", err);
-  }
+  } catch (err) { zapMessage("e", "ZapCaptcha freezeDOM failed:", err); }
 }
 
 // Block user interaction and stop script bubbling
@@ -1605,18 +1436,13 @@ function haltPropagation() {
     document.body.addEventListener("submit", e => e.preventDefault(), true);
     document.body.addEventListener("keydown", e => e.stopImmediatePropagation(), true);
     document.body.addEventListener("mousedown", e => e.stopImmediatePropagation(), true);
-  } catch (err) {
-    zapMessage("e", "haltPropagation failed:", err);
-  }
+  } catch (err) { zapMessage("e", "haltPropagation failed:", err); }
 }
 
 // Optional total DOM wipe, should only be used after rendering fallback
 function obliterateDOM() {
-  try {
-    document.documentElement.innerHTML = "";
-  } catch (err) {
-    zapMessage("e", "obliterateDOM failed:", err);
-  }
+  try { document.documentElement.innerHTML = ""; }
+  catch (err) { zapMessage("e", "obliterateDOM failed:", err); }
 }
 
 let zapIframeGuarded = false;
@@ -1641,16 +1467,14 @@ function renderBlockedMessage() {
 
     document.body.innerHTML = ""; // clear old content first
     document.body.appendChild(div);
-  } catch (e) {
-    zapMessage("e", "renderBlockedMessage failed:", e);
-  }
+  } catch (e) { zapMessage("e", "renderBlockedMessage failed:", e); }
 }
 
 // Main iframe guard routine with styling and neutralization
 function zapIframeGuard() {
   if (!zapFlags.getFlag("iframeEmbedCheck") || zapFlags.getFlag("zapIframeGuarded")) return;
   zapIframeGuarded = true; // Singleshot lock
-  if (window.top === window.self) return;
+  if (window.top === window.self) { return; }
 
   zapMessage("w", "Iframe embedding detected– attempting neutralization");
 
@@ -1664,21 +1488,12 @@ function zapIframeGuard() {
 
     const zapStyleSheet = styleEl.sheet;
     if (zapStyleSheet) {
-      zapStyleSheet.insertRule(`
-        .zap-frame-blocked {
-          height: 100% !important;
-          width: 100% !important;
-          background: black !important;
-          color: red !important;
-          font-family: sans-serif !important;
-          padding: 2em !important;
-          text-align: center !important;
-        }
-      `);
+      zapStyleSheet.insertRule(`.zap-frame-blocked { height: 100% !important;
+        width: 100% !important; background: black !important; color: red !important;
+        font-family: sans-serif !important; padding: 2em !important;
+        text-align: center !important; }`);
     }
-  } catch (e) {
-    zapMessage("e", "Failed to insert iframe-block CSS rule", e);
-  }
+  } catch (e) { zapMessage("e", "Failed to insert iframe-block CSS rule", e); }
 
   // Render message and lock DOM on next animation frame
   requestAnimationFrame(() => {
@@ -1701,13 +1516,11 @@ function zapIframeGuard() {
     window.top.location = window.location.href;
     top.location = self.location;
     window.top.location.replace(window.location.href);
-  } catch (e) {
-    zapMessage("w", "Top redirect failed – likely cross-origin");
-  }
+  } catch (e) { zapMessage("w", "Top redirect failed – likely cross-origin"); }
 }
 zapIframeGuard();
 
-// ZapCaptcha Anti-Iframe Disarming Logic
+// Disarm iframes
 window.addEventListener("DOMContentLoaded", () => {
   if (!zapFlags.getFlag("iframeInjectCheck")) { return; }
   function disarmIframes() {
@@ -1717,18 +1530,15 @@ window.addEventListener("DOMContentLoaded", () => {
       try {
         iframe.src = "https://192.0.2.0";
         setTimeout(() => {
-          try {
-            iframe.remove();
-          } catch { // fallback
-            try {
-              iframe.parentNode?.removeChild(iframe);
-            } catch {} // NOP for now
+          try { iframe.remove(); }
+          catch { // fallback
+            try { iframe.parentNode?.removeChild(iframe); }
+            catch {} // NOP for now
           }
         }, 30);
       } catch {
-        try {
-          iframe.parentNode?.removeChild(iframe);
-        } catch {} // NOP for now
+          try { iframe.parentNode?.removeChild(iframe); }
+          catch {} // NOP for now
       }
     };
 
@@ -1745,7 +1555,6 @@ window.addEventListener("DOMContentLoaded", () => {
         }
       }
     });
-
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
@@ -1778,11 +1587,8 @@ function storeZapCaptchaFingerprint(canvas) {
 function validateZapCaptchaFingerprint(canvas) {
   return getCanvasPixelFingerprint(canvas).then(currentFp => {
     const isMatch = zapCanvasFingerprint === currentFp;
-    if (!isMatch) {
-     zapMessage("w", "Canvas fingerprint mismatch!");
-    } else {
-      zapMessage("i", "Canvas fingerprint verified.");
-    }
+    if (!isMatch) { zapMessage("w", "Canvas fingerprint mismatch!"); }
+    else { zapMessage("i", "Canvas fingerprint verified."); }
     return isMatch;
   });
 }
@@ -1798,44 +1604,28 @@ function insertZapRule(selectorOrRule, rules = null) {
   if (!zapStyleSheet) return;
 
   let ruleText;
-
-  if (rules === null) {
-    // Full rule was passed directly (e.g. @media block)
+  if (rules === null) { // Full rule passed directly (e.g. @media block)
     ruleText = selectorOrRule.trim();
-  } else {
-    // Normal selector + rules
+  } else { // Normal selector and rules
     ruleText = `${selectorOrRule} { ${rules} }`;
   }
 
   // Prevent duplicate rules
   const exists = Array.from(zapStyleSheet.cssRules).some(r => r.cssText === ruleText);
   if (!exists) {
-    try {
-      zapStyleSheet.insertRule(ruleText, zapStyleSheet.cssRules.length);
-    } catch (e) {
-      zapMessage("e", "Failed to insert rule:", ruleText, e);
-    }
+    try { zapStyleSheet.insertRule(ruleText, zapStyleSheet.cssRules.length); }
+    catch (e) { zapMessage("e", "Failed to insert rule:", ruleText, e); }
   }
 }
 
 // This helps out a bit with FOUC and double prevents no-js bypass
 (function injectCriticalCSS() {
-  insertZapRule(".zcaptcha-label:not(.verified) .label-verified", `
-    display: none !important;
-    opacity: 0 !important;
-    transform: scale(0.95) !important;
-  `);
+  insertZapRule(".zcaptcha-label:not(.verified) .label-verified",
+    `display: none !important; opacity: 0 !important; transform: scale(0.95) !important;`);
 
-  insertZapRule(".zcaptcha-label.verified .label-unverified", `
-    display: none !important;
-    opacity: 0 !important;
-    transform: scale(0.95) !important;
-  `);
-  insertZapRule(`@media (scripting: none) {
-    * {
-      display: none !important;
-    }
-  }`);
+  insertZapRule(".zcaptcha-label.verified .label-unverified", `display: none !important; 
+    opacity: 0 !important; transform: scale(0.95) !important;`);
+  insertZapRule(`@media (scripting: none) { *{display: none !important;} }`);
 })();
 
 // Lock up all clicks except for links
@@ -1843,12 +1633,9 @@ const preventTextCopyAndRightClick = (function () {
   function blockCopyAndContext() {
     if (!zapFlags.getFlag("clickBlockEnforcement")) { return; }
 
-    insertZapRule("body.nocopy, body.nocopy *", `
-      user-select: none !important;
-      -webkit-user-select: none !important;
-      -moz-user-select: none !important;
-      -ms-user-select: none !important;
-    `);
+    insertZapRule("body.nocopy, body.nocopy *", `user-select: none !important;
+      -webkit-user-select: none !important; -moz-user-select: none !important;
+      -ms-user-select: none !important;`);
 
     document.body.classList.add("nocopy");
 
@@ -1863,10 +1650,7 @@ const preventTextCopyAndRightClick = (function () {
     });
   }
 
-  // Immediately invoke once
-  blockCopyAndContext();
-
-  // Return for later manual use
+  blockCopyAndContext(); // Immediately invoke once
   return blockCopyAndContext;
 })();
 
@@ -1895,12 +1679,8 @@ Object.defineProperty(window, "preventTextCopyAndRightClick", {
         console.log !== originals.consoleLog ||
         console.error !== originals.consoleError ||
         window.addEventListener !== originals.addEventListener
-      ) {
-        await zapLockout("Function override detected");
-      }
-    } catch (e) {
-      zapMessage("w", "Function override error: " + e);
-    }
+      ) { await zapLockout("Function override detected"); }
+    } catch (e) { zapMessage("w", "Function override error: " + e); }
   }, 1000);
 })();
 
@@ -1909,7 +1689,6 @@ Object.defineProperty(window, "preventTextCopyAndRightClick", {
   if (!zapFlags.getFlag("headlessBrowserCheck")) return;
 
   const ua = navigator.userAgent || "";
-
   const isMobile = /Mobi|Android|iPhone|iPad/i.test(ua);
   const isHeadlessUA = /HeadlessChrome|puppeteer|phantomjs|selenium/i.test(ua);
   const isWebDriver = navigator.webdriver === true;
@@ -1969,17 +1748,14 @@ Object.defineProperty(window, "preventTextCopyAndRightClick", {
 
 // Detect absence of any human interaction
 function checkHumanInteraction() {
-  let interacted = false;
-  const markInteracted = () => { interacted = true; };
+  let action = false;
+  const markInteracted = () => { action = true; };
 
   window.addEventListener("mousemove", markInteracted, { once: true });
   window.addEventListener("touchstart", markInteracted, { once: true });
   window.addEventListener("keydown", markInteracted, { once: true });
 
-  if (!interacted) {
-    console.warn("No human interaction detected. Possible headless bot.");
-    return true;
-  }
+  if (!action) { zapMessage("w", "No human interaction detected. Possible headless."); return true; }
 }
 
 // Periodic zapcaptcha.css Integrity Check
@@ -2002,14 +1778,12 @@ function checkHumanInteraction() {
       .then(text => sha384(text))
       .then(async hash => {
         const actual = "sha384-" + hash;
-        if (actual !== expected) {
+        if (actual !== expected) { // TBD send the full details. Holding off for performance
           // await zapLockout("zapcaptcha.css hash mismatch", `Expected: ${expected}\nActual: ${actual}`);
           await zapLockout("zapcaptcha.css hash mismatch");
         }
       })
-      .catch(err => {
-          zapMessage("e", "CSS Integrity Check Failed");
-      });
+      .catch(err => { zapMessage("e", "CSS Integrity Check Failed"); });
   }
 
   // Retry every 5s until stylesheet is live, then poll
@@ -2066,17 +1840,12 @@ function getDelays() {
     const targetId = box.getAttribute("data-target-id");
     if (targetId) return `zcid_${targetId}`;
   
-    // Absolute fallback: give hardcoded label (won't break anything)
-    return "zcid_fallback";
+    return "zcid_fallback"; // Fallback to the fallback
   }
 
-  function allowEventDispatch(box) {
-    signalMap.set(box, true);
-  }
+  function allowEventDispatch(box) { signalMap.set(box, true); }
   
-  function dispatchIfLegit(box, evt) {
-    if (signalMap.get(box)) box.dispatchEvent(evt);
-  }
+  function dispatchIfLegit(box, evt) { if (signalMap.get(box)) box.dispatchEvent(evt); }
 
   function generateNonce() {
     const nonce = crypto.randomUUID();
@@ -2122,28 +1891,21 @@ function getDelays() {
       value = cookie?.split("=")[1] || null;
     } catch {}
     if (!value) {
-      try {
-        value = sessionStorage.getItem(`${NONCE_COOKIE_PREFIX}${name}`) || null;
-      } catch {}
+      try { value = sessionStorage.getItem(`${NONCE_COOKIE_PREFIX}${name}`) || null; }
+      catch {}
     }
     return value;
   }
 
   function clearNonce(box) {
     const name = getStorageName(box);
-    try {
-      document.cookie = `${NONCE_COOKIE_PREFIX}${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
-    } catch {}
-    try {
-      sessionStorage.removeItem(`${NONCE_COOKIE_PREFIX}${name}`);
-    } catch {}
+    try { document.cookie = `${NONCE_COOKIE_PREFIX}${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`; }
+    catch {}
+    try { sessionStorage.removeItem(`${NONCE_COOKIE_PREFIX}${name}`); }
+    catch {}
   }
   
-  insertZapRule(".zcap-timeout-message", `
-    color: red;
-    font-size: 0.9em;
-    margin: 0;
-  `);
+  insertZapRule(".zcap-timeout-message", `color: red; font-size: 0.9em; margin: 0;`);
 
   function showTimeoutMessage(box, timeoutSec) {
     if (!box) return;
@@ -2157,18 +1919,8 @@ function getDelays() {
     msg.className = "zcap-timeout-message";
     msg.textContent = "Captcha expired. Please retry.";
   
-    // Style it visibly (override if needed)
-    msg.classList.add("zcap-timeout-message");
-
-  
+    msg.classList.add("zcap-timeout-message"); // Style it
     box.appendChild(msg);
-  
-    // Dispatch event (optional for advanced users)
-    /* 
-    box.dispatchEvent(new CustomEvent("zapcaptcha-expired", {
-      detail: { timestamp: Date.now() }
-    }));
-    */
     dispatchIfLegit(box, new CustomEvent("zapcaptcha-expired", {
       detail: { timeout: timeoutSec, timestamp: Date.now() }
     }));
@@ -2190,29 +1942,18 @@ function getDelays() {
     timeoutMap.delete(id);
   }
 
-  // This function only handles how timeout even happens and
-  // the resultant expiration. TODO: make expiration configurable
-  // 
-  // FYI:
-  // Timeout is set by data field in meta tag or default 1 min.
+  // Timeout is set by data field in meta tag or default 20 seconds.
   // Timeout can happen in two cases:
   //   1. Challenge not completed in the set time
   //   2. Challenge completed but sits for a time
-  function setTimeoutWatcher(box, triggerEl) {    
+  function setTimeoutWatcher(box, triggerEl) {
+    if (box?.dataset.zcapFrictionless === "1") { return; }
+    
     const timeoutAttr = box?.getAttribute("data-zcap-timeout");
     const timeoutSec = parseInt(timeoutAttr, 10);
-    if (!timeoutSec || isNaN(timeoutSec) || timeoutSec < 3) return;
+    const finalTimeout = (!timeoutSec || isNaN(timeoutSec) || timeoutSec < 3) ? 10 : timeoutSec; // Default
 
     clearTimeoutWatcher(triggerEl);
-  
-    // Only skip if this is a frictionless box and extraMap marks it
-    if (
-      box?.dataset.zcapFrictionless === "1" &&
-      typeof extraMap !== "undefined" &&
-      extraMap.get(triggerEl)
-    ) {
-      return;
-    }
   
     const timeoutId = setTimeout(() => {
       const trueBox = document.querySelector(`.zcaptcha-box[data-target-id="${triggerEl.id}"]`) || box;
@@ -2224,7 +1965,7 @@ function getDelays() {
       let label = box.querySelector(".zcaptcha-label") || box.querySelector(".zcaptcha-left span");
       label?.classList.remove("verified");
   
-      showTimeoutMessage(trueBox, timeoutSec);
+      showTimeoutMessage(trueBox, finalTimeout);
       
       // Auto-remove the expiration message after a delay (optional)
       setTimeout(() => {
@@ -2245,7 +1986,7 @@ function getDelays() {
       if (canvas) {
         if (canvas._raf) cancelAnimationFrame(canvas._raf);
         canvas.remove();
-        canvasMap.delete(triggerEl); // cleanup
+        canvasMap.delete(triggerEl); // Cleanup
       }
         
       // Remove overlay if no other CAPTCHA is currently verified and within timeout
@@ -2261,20 +2002,13 @@ function getDelays() {
       
         if (age < otherTimeoutSec) { shouldRemoveOverlay = false; break; }
       }
-      
-      if (shouldRemoveOverlay) {
-        UIOverlayManager.enable(triggerEl);
-      }
+      UIOverlayManager.enable(triggerEl);
 
       trueBox.dispatchEvent(new CustomEvent("zapcaptcha-expired", {
-        detail: {
-          timeout: timeoutSec,
-          timestamp: Date.now()
-        }
-      }));
+        detail: { timeout: finalTimeout, timestamp: Date.now() }}));
   
       timeoutMap.delete(triggerEl); // Clean up
-    }, timeoutSec * 1000);
+    }, finalTimeout * 1000);
   
     timeoutMap.set(triggerEl, timeoutId);
   }
@@ -2296,6 +2030,20 @@ function getDelays() {
     }
   }, true);
   
+  window.addEventListener("focusin", (e) => {
+    const el = e.target;
+    if (!(el instanceof HTMLElement)) return;
+  
+    const box = el.closest('.zcaptcha-box[data-zcap-frictionless="1"]');
+    if (!box) return;
+  
+    const triggerId = box.dataset.targetId;
+    const trigger = document.getElementById(triggerId);
+    const isVerified = trigger && verifiedMap.get(trigger);
+  
+    if (!isVerified && ["input", "textarea", "select"].includes(el.tagName.toLowerCase())) { el.blur(); }
+  }, true);
+  
   // Block keys before checks so nothing gets through
   (function trapKeysDuringFrictionless() {
     function trap(e) {
@@ -2304,8 +2052,13 @@ function getDelays() {
           const trigger = document.getElementById(box.dataset.targetId);
           return verifiedMap.get(trigger);
         });
-  
-        if (!isVerified) {
+        
+        const el = e.target;
+        const flBox = el.closest("form")?.querySelector('.zcaptcha-box[data-zcap-frictionless="1"]');
+        const trigger = flBox && document.getElementById(flBox.dataset.targetId);
+        const isFrictionless = !!flBox;
+
+        if (isFrictionless && !isVerified) {
           e.preventDefault();
           e.stopImmediatePropagation();
           return false;
@@ -2325,7 +2078,6 @@ function getDelays() {
     for (const box of boxes) {
       const trigger = document.querySelector(`[id="${box.dataset.targetId}"]`);
     
-      // Blur active
       if (document.activeElement && box.contains(document.activeElement)) { document.activeElement.blur(); }
     
       // Also disable all inputs inside the box
@@ -2410,10 +2162,9 @@ function getDelays() {
     window.addEventListener("resize", realignOverlays);
     window.addEventListener("scroll", realignOverlays, true);
     
-    // Optionally: set interval fallback if OS doesn't dispatch resize
+    // Set interval fallback if OS doesn't dispatch resize
     const fallbackTimer = setInterval(realignOverlays, 500);
   
-    // Run checks
     const DURATION = 25000;
     const startTime = Date.now();
     const scores = [];
@@ -2422,9 +2173,7 @@ function getDelays() {
       try {
         const result = await fn();
         if (typeof result === "number") scores.push(result);
-      } catch (e) {
-        zapMessage("w", "Frictionless check failed", e);
-      }
+      } catch (e) { zapMessage("w", "Frictionless check failed", e); }
     };
   
     const checks = [
@@ -2485,9 +2234,7 @@ function getDelays() {
   
   if (zapFlags.getFlag("frictionLess")) {
     window.addEventListener("DOMContentLoaded", () => {
-      setTimeout(() => {
-        launchFrictionlessMode();
-      }, 1000); // slight delay if needed
+      setTimeout(() => { launchFrictionlessMode(); }, 1000); // Delay is needed
     });
   }
 
@@ -2507,6 +2254,7 @@ function getDelays() {
           zapMessage("w", "ZapCaptcha not yet frictionless-verified");
           return; // Don't launch challenge
         }
+        setTimeoutWatcher(box, triggerEl);
       }
       
       // Watchdog definition
@@ -2526,12 +2274,7 @@ function getDelays() {
           }
         }
       });
-      tamperWatcher.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["class"]
-      });
+      tamperWatcher.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
       
       if (!box) { zapMessage("e","Failed to find box for trigger: ", triggerEl.id); return; }
       
@@ -2606,15 +2349,14 @@ function getDelays() {
             });
           }
           setTimeout(() => {
-            
+              console.warn("⚠️ Post-challenge success reached for:", triggerEl.id);
             if (!checkHoneypotTraps()) {
               (async () => { await zapLockout("ZapCaptcha honeypot triggered"); })();
               zapMessage("w", "Honeypot triggered");
               return; // If we make it here, lockout is turned off
             }
-            
             if (zapFlags.getFlag("lockoutsEnabled") && box.classList.contains("softlocked")) { return; }
-          
+            
             onSuccess?.();
           }, DELAYS.submit);
         }, tamperWatcher);
@@ -2670,13 +2412,8 @@ function getDelays() {
   window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.removeAttribute("disabled"));
   
-    insertZapRule(".zcap-brand-text", `
-      cursor: pointer !important;
-      color: black !important;
-      font-size: 13px !important;
-      font-family: inherit !important;
-      text-decoration: none !important;
-    `);
+    insertZapRule(".zcap-brand-text", `cursor: pointer !important; color: black !important;
+      font-size: 13px !important; font-family: inherit !important; text-decoration: none !important;`);
   
     document.querySelectorAll(".zcaptcha-box").forEach((box) => {
       if (!box.dataset.zcapId || box.dataset.zcapId.trim() === "") {
@@ -2685,12 +2422,7 @@ function getDelays() {
       }
       
       // Lock zcapId
-      Object.defineProperty(box.dataset, "zcapId", {
-        value: box.dataset.zcapId,
-        writable: false,
-        configurable: false,
-        enumerable: true
-      });
+      Object.defineProperty(box.dataset, "zcapId", { value: box.dataset.zcapId, writable: false, configurable: false, enumerable: true });
       
       // Support compact mode
       if (box.dataset.size === "compact") { box.classList.add("zcaptcha-compact"); }
@@ -2713,11 +2445,7 @@ function getDelays() {
       `;
       
       const brand = box.querySelector(".zcap-brand-text");
-      if (brand) {
-        brand.addEventListener("click", () => {
-          window.open(brand.getAttribute("data-href"), "_blank", "noopener");
-        });
-      }
+      if (brand) { brand.addEventListener("click", () => { window.open(brand.getAttribute("data-href"), "_blank", "noopener"); }); }
       
       const label = box.querySelector(".zcaptcha-label");
       if (label) {
@@ -2741,15 +2469,13 @@ function getDelays() {
     function disable(triggerEl) {
       if (!triggerEl || currentOwner === triggerEl) return;
   
-      // Remove any existing overlay first
-      if (overlayEl) overlayEl.remove();
+      if (overlayEl) overlayEl.remove(); // Remove any existing overlay first
   
       currentOwner = triggerEl;
       overlayEl = document.createElement("div");
       overlayEl.className = "zcaptcha-overlay";
       overlayEl.setAttribute("aria-hidden", "true");
       overlayEl.addEventListener("click", (e) => e.stopPropagation());
-  
       document.body.appendChild(overlayEl);
     }
     
@@ -2782,8 +2508,7 @@ function getDelays() {
     }
   
     function forceEnable() {
-      // Used when we want to fully clear any active overlay no matter who owns it
-      if (overlayEl) overlayEl.remove();
+      if (overlayEl) overlayEl.remove(); // Fully clear active overlays no matter who owns it
       overlayEl = null;
       currentOwner = null;
     }
@@ -2792,14 +2517,7 @@ function getDelays() {
       return currentOwner;
     }
   
-    return {
-      disable,
-      enable,
-      softDisable,
-      softEnable,
-      forceEnable,
-      getOwner
-    };
+    return { disable, enable, softDisable, softEnable, forceEnable, getOwner };
   })();
 
   // Patch createElement and createElementNS
@@ -2825,9 +2543,7 @@ function getDelays() {
         }
         return origCreateElementNS.call(this, ns, tagName, options);
       };
-    } catch (err) {
-      zapMessage("e", "Injection prevention failed:", err);
-    }
+    } catch (err) { zapMessage("e", "Injection prevention failed:", err); }
   }
   monkeyPatch();
   
@@ -2845,46 +2561,22 @@ function getDelays() {
           if (allowed) return original.call(this, init);
           zapMessage("i", "Shadow DOM creation blocked on:", this);
           return null;
-        },
-        writable: false,
-        configurable: false,
-      });
-    } catch (err) {
-      zapMessage("w", "Failed to lock down attachShadow:", err);
-    }
+        }, writable: false, configurable: false, });
+    } catch (err) { zapMessage("w", "Failed to lock down attachShadow:", err); }
   }
   plugShadowDOM();
   
-  insertZapRule(".zap-fade-out", `
-    transition: opacity 0.3s ease !important;
-    opacity: 0 !important;
-  `);
+  insertZapRule(".zap-fade-out", `transition: opacity 0.3s ease !important; opacity: 0 !important;`);
 
   function fadeAndRemove(node) {
     node.classList.add("zap-fade-out");
     setTimeout(() => node.remove(), 300);
   }
 
-  insertZapRule(".zcap-dom-label", `
-    font-size: 20px !important;
-    color: #606060 !important;
-  `);
-  
-  insertZapRule(".zcap-dom-right", `
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-  `);
-  
-  insertZapRule(".zcap-dom-logo", `
-    width: 46px !important;
-    height: 46px !important;
-  `);
-  
-  insertZapRule(".zcap-zname", `
-    margin: 0 !important;
-    padding: 0 !important;
-  `);
+  insertZapRule(".zcap-dom-label", `font-size: 20px !important; color: #606060 !important;`);
+  insertZapRule(".zcap-dom-right", `display: flex !important; flex-direction: column !important; align-items: center !important;`);
+  insertZapRule(".zcap-dom-logo", `width: 46px !important; height: 46px !important;`);
+  insertZapRule(".zcap-zname", `margin: 0 !important; padding: 0 !important;`);
 
   // DOM mode is provided for legacy system support
   // Not recommended as a first option on most systems
@@ -2916,7 +2608,6 @@ function getDelays() {
     const height = box.offsetHeight;
     const scrollLeft = window.scrollX;
     const scrollTop = window.scrollY;
-    
     let visibleWidth, visibleHeight;
 
     // Turns out some older Android WebViews don't support visualViewport
@@ -2929,13 +2620,12 @@ function getDelays() {
     }
 
     let x, y;
-    
     if (zapFlags.getFlag("viewportConfined")) {    
       x = scrollLeft + getCryptoFloat(0, visibleWidth - width);
       y = scrollTop + getCryptoFloat(0, visibleHeight - height);
     } else {
-       x = getCryptoFloat(0, boundsWidth - width);
-       y = getCryptoFloat(0, boundsHeight - height);
+      x = getCryptoFloat(0, boundsWidth - width);
+      y = getCryptoFloat(0, boundsHeight - height);
     }
     let speedScale = 1.0;
     if (isProbablyMobile()) { speedScale = 0.1 };
@@ -2951,9 +2641,7 @@ function getDelays() {
         dx = Math.cos(angle) * speed;
         dy = Math.sin(angle) * speed;
       }
-
-      x += dx;
-      y += dy;
+      x += dx; y += dy;
 
       if (zapFlags.getFlag("viewportConfined")) {
         if (x <= scrollLeft || x + box.offsetWidth >= scrollLeft + visibleWidth) { dx = -dx; }
@@ -2965,7 +2653,6 @@ function getDelays() {
 
       box.style.left = `${x}px`;
       box.style.top = `${y}px`;
-
       box._raf = requestAnimationFrame(move);
     };
 
@@ -3023,12 +2710,8 @@ function getDelays() {
         if (triggerId) {
           if (zapFlags.getFlag("extraChallenges")) { launchExtraClickShadow(triggerId, box, callback); }
           else { callback?.(); }
-        } else {
-          zapMessage("e", "launchExtraClickShadow: Missing trigger ID");
-        }
-      } else {
-        callback?.();
-      }
+        } else { zapMessage("e", "launchExtraClickShadow: Missing trigger ID"); }
+      } else { callback?.(); }
     });
   }
 
@@ -3046,7 +2729,6 @@ function getDelays() {
     canvas.style.border = "2px solid cyan";
     canvas.style.borderRadius = "8px";
     document.body.appendChild(canvas);
-
     const ctx = canvas.getContext("2d");
     const zapImage = new Image();
     zapImage.src = "https://zapcaptcha.com/zap.svg";
@@ -3056,7 +2738,6 @@ function getDelays() {
       const rect = document.documentElement.getBoundingClientRect();
       const scrollLeft = window.scrollX;
       const scrollTop = window.scrollY;
-      
       let visibleWidth, visibleHeight;
       
       if (zapFlags.getFlag("viewportConfined")) {
@@ -3119,8 +2800,7 @@ function getDelays() {
           dy = Math.sin(angle) * speed;
         }
 
-        x += dx;
-        y += dy;
+        x += dx; y += dy;
 
         if (zapFlags.getFlag("viewportConfined")) {
           if (x <= scrollLeft || x >= scrollLeft + visibleWidth - canvas.width) { dx = -dx; }
@@ -3173,12 +2853,10 @@ function getDelays() {
         if (triggerId) {
           if (zapFlags.getFlag("extraChallenges")) { launchExtraClickShadow(triggerId, canvas, callback); }
           else { callback?.(); }
-        } else {
-          zapMessage("e", "launchExtraClickShadow: Missing trigger ID");
         }
-      } else {
-        callback?.();
+        else { zapMessage("e", "launchExtraClickShadow: Missing trigger ID"); }
       }
+      else { callback?.(); }
     });
 
     function roundRect(ctx, x, y, w, h, r) {
@@ -3203,18 +2881,6 @@ function getDelays() {
   preload.href = "https://zapcaptcha.com/zap.svg";
   document.head.appendChild(preload);
   
-  // This check is mostly obsolete at this point
-  function probeCheck() {
-    const img = new Image();
-    Object.defineProperty(img, 'id', {
-      get: function () {
-        zapMessage("w", "DevTools accessed via console inspection");
-        return "zap";
-      }
-    });
-    img.id; // Trigger
-  }
-  
   function launchExtraClickShadow(triggerId, el, finalCallback) {
     const triggerEl = document.getElementById(triggerId);
     if (triggerEl) {
@@ -3222,8 +2888,7 @@ function getDelays() {
       timeoutMap.delete(triggerEl);
     }
     if (el._raf) cancelAnimationFrame(el._raf);
-  
-    // Clear existing timeout using triggerId instead of el
+    
     clearTimeoutWatcher(triggerId);
   
     extraMap.set(el, true);
@@ -3260,7 +2925,7 @@ function getDelays() {
     container.style.cursor = "pointer";
     container.style.userSelect = "none";
   
-    // Timeout logic — works for all modes
+    // Timeout logic
     const timeoutHandle = setTimeout(() => {
       extraMap.delete(el);
       verifiedMap.set(el, false);
@@ -3350,9 +3015,7 @@ function getDelays() {
         holdStart = Date.now();
         renderCountdown();
     
-        countdownInterval = setInterval(() => {
-          renderCountdown();
-        }, 100);
+        countdownInterval = setInterval(() => { renderCountdown(); }, 100);
     
         holdTimer = setTimeout(() => {
           if (thisAttempt !== attemptId) return; // stale
@@ -3397,7 +3060,6 @@ function getDelays() {
     const threshold = 160;
     const wDiff = window.outerWidth - window.innerWidth;
     const hDiff = window.outerHeight - window.innerHeight;
-    
     if (wDiff > threshold || hDiff > threshold) { zapMessage("w", "DevTools window dimension anomaly"); }
   }
  
@@ -3406,7 +3068,6 @@ function getDelays() {
     const start = performance.now();
     debugger;
     const end = performance.now();
-    
     if (end - start > 50) { zapMessage("w", "Debugger slowdown detected"); }
   }
  
@@ -3414,7 +3075,6 @@ function getDelays() {
   if (zapFlags.getFlag("consoleWarnings")) {
     setInterval(() => {
       try {
-        probeCheck();
         dimensionCheck();
         timingCheck();
       } catch (e) { zapMessage("e", "Console warning issue: ", e); }
