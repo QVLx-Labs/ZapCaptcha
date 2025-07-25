@@ -458,10 +458,16 @@ const lockState = (() => {
   };
 })();
 
-// Detect most mobile devices (I think)
 const isProbablyMobile = (() => {
   const test = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i;
   const fn = function() { return test.test(navigator.userAgent); };
+  return fn;
+})();
+
+const isProbablyHeadless = (() => {
+  const test = /HeadlessChrome|puppeteer|phantomjs|selenium/i;
+  const ua = navigator.userAgent;
+  const fn = function () { return test.test(ua); };
   return fn;
 })();
 
@@ -1257,64 +1263,66 @@ function isTorConnectionSpeedSuspicious() {
 // Ban Tor browser if detected. Updated to be shadowed.
 // Must use fingerprinting; exit node crosscheck
 // not possible for obvious reasons of IP masking 
-(async function detectTorBrowser() {
-  if (!zapFlags.getFlag("torCheck") && !zapFlags.getFlags("frictionLess")) return;
+const detectTorBrowser = (() => {
+  return async function () {
+    if (!zapFlags.getFlag("torCheck") && !zapFlags.getFlag("frictionLess")) return 0;
 
-  const uaHit = isTorUserAgent(); // strong signal
-  const hardBlocked = uaHit || isTorWebGLBlocked(); // hard fail cases
+    const uaHit = isTorUserAgent(); // strong signal
+    const hardBlocked = uaHit || isTorWebGLBlocked(); // hard fail cases
 
-  let torScore = 0;
-  if (isTorNavigatorFingerprint()) torScore += 1;
-  if (isTorCanvasBlocked()) torScore += 1;
-  if (isTorAudioBlocked()) torScore += 1;
-  if (isTorPluginTrap()) torScore += 1;
-  if (isTorConnectionSpeedSuspicious()) torScore += 0.5;
+    let torScore = 0;
+    if (isTorNavigatorFingerprint()) torScore += 1;
+    if (isTorCanvasBlocked()) torScore += 1;
+    if (isTorAudioBlocked()) torScore += 1;
+    if (isTorPluginTrap()) torScore += 1;
+    if (isTorConnectionSpeedSuspicious()) torScore += 0.5;
 
-  const isMobile = isProbablyMobile();
+    const isMobile = isProbablyMobile();
+    const torDetected = hardBlocked || (!isMobile && torScore >= 2.5);
 
-  const torDetected = hardBlocked || (!isMobile && torScore >= 2.5);
+    if (torDetected) {
+      document.cookie = "zaptor=1; path=/; max-age=3600";
+      localStorage.setItem("torblock", "1");
 
-  if (torDetected) {
-    document.cookie = "zaptor=1; path=/; max-age=3600";
-    localStorage.setItem("torblock", "1");
+      await zapLockout("Tor Browser Detected");
 
-    await zapLockout("Tor Browser Detected");
+      // Clear the page content
+      document.body.innerHTML = "";
 
-    // Clear the page content
-    document.body.innerHTML = "";
+      // Create host for shadow DOM
+      const torRoot = document.createElement("div");
+      torRoot.id = "tor-block-root";
+      torRoot.dataset.zapOkShadow = "1";
+      document.body.appendChild(torRoot);
 
-    // Create a host for shadow root
-    const torRoot = document.createElement("div");
-    torRoot.id = "tor-block-root";
-    torRoot.dataset.zapOkShadow = "1";
-    document.body.appendChild(torRoot);
+      // Attach closed Shadow DOM
+      const shadow = torRoot.attachShadow({ mode: "closed" });
 
-    // Attach shadow DOM
-    const shadow = torRoot.attachShadow({ mode: "closed" });
+      // Define template
+      const template = document.createElement("template");
+      template.innerHTML = `
+        <style>
+          div#tor-message {
+            background: black;
+            color: red;
+            font-family: sans-serif;
+            padding: 2em;
+            text-align: center;
+          }
+        </style>
+        <div id="tor-message">
+          <h1>❌ Access Blocked</h1>
+          <p>Tor Browser is not supported on this site.</p>
+        </div>
+      `;
 
-    // Define HTML template
-    const template = document.createElement("template");
-    template.innerHTML = `
-      <style>
-        div#tor-message {
-          background: black;
-          color: red;
-          font-family: sans-serif;
-          padding: 2em;
-          text-align: center;
-        }
-      </style>
-      <div id="tor-message">
-        <h1>❌ Access Blocked</h1>
-        <p>Tor Browser is not supported on this site.</p>
-      </div>
-    `;
+      shadow.appendChild(template.content.cloneNode(true));
+    }
 
-    // Inject template into shadow root
-    shadow.appendChild(template.content.cloneNode(true));
-  }
-  return torScore;
+    return torScore;
+  };
 })();
+detectTorBrowser();
 
 // Helper: check for time spoof (To be deprecated)
 function isTimezoneMismatch(ipData) {
@@ -1387,10 +1395,10 @@ function isWebRTCLeakBlocked() {
 }
 
 // Detect VPN but only after IP is available
-(function detectVPN() {
-  if (!zapFlags.getFlag("vpnCheck") && !zapFlags.getFlag("frictionLess")) return;
+const detectVPN = (() => {
+  return async function() {
+    if (!zapFlags.getFlag("vpnCheck") && !zapFlags.getFlag("frictionLess")) return 0;
 
-  document.addEventListener("DOMContentLoaded", async () => {
     let score = 0;
     let ipData = {};
 
@@ -1399,7 +1407,6 @@ function isWebRTCLeakBlocked() {
       ipData = await res.json();
     } catch (err) { zapMessage("w", "VPN Check: Failed to fetch IP info", err); }
 
-    // Run checks
     if (isLocaleMismatch(ipData)) {
       zapMessage("i", "VPN Check: Locale mismatch with IP");
       score += 2;
@@ -1415,11 +1422,11 @@ function isWebRTCLeakBlocked() {
       score += 2;
     }
 
-    if (score >= 3) { zapLockout("VPN/Anonymizer detected"); }
-    else { zapMessage("i", "ZapCaptcha: No VPN/anonymizer detected (score: " + score + ")"); }
-    return score;
-  });
+    if (score >= 3) { await zapLockout("VPN/Anonymizer detected"); }
+    return score >= 3 ? 1 : 0;
+  };
 })();
+detectVPN();
 
 // Freeze critical objects to prevent DOM tampering after rendering
 function freezeDOM() {
@@ -1685,26 +1692,29 @@ Object.defineProperty(window, "preventTextCopyAndRightClick", {
 })();
 
 // Detect headless browser
-(async function detectHeadlessBrowser() {
-  if (!zapFlags.getFlag("headlessBrowserCheck")) return;
+const detectHeadlessBrowser = (() => {
+  return async function() {
+    if (!zapFlags.getFlag("headlessBrowserCheck") && !zapFlags.getFlag("frictionLess")) return 0;
 
-  const ua = navigator.userAgent || "";
-  const isMobile = /Mobi|Android|iPhone|iPad/i.test(ua);
-  const isHeadlessUA = /HeadlessChrome|puppeteer|phantomjs|selenium/i.test(ua);
-  const isWebDriver = navigator.webdriver === true;
+    const isMobile = isProbablyMobile();
+    const isHeadless = isProbablyHeadless();
+    const isWebDriver = navigator.webdriver === true;
 
-  // Only block if all signals point to headless AND we're not on mobile
-  const block = !isMobile && (isWebDriver || isHeadlessUA);
-
-  if (block) { await zapLockout("Headless browser detected"); }
-
-  // Stealth fingerprint mismatch
-  navigator.permissions?.query({ name: 'notifications' }).then(p => {
-    if (!isMobile && Notification.permission === 'denied' && p.state === 'prompt') {
-      zapMessage("w", "Possible stealth headless environment");
+    // Only block if all signals point to headless AND we're not on mobile
+    const block = !isMobile && (isWebDriver || isHeadless);
+    if (block) {
+      await zapLockout("Headless browser detected");
     }
-  });
-  return block;
+
+    // Stealth fingerprint mismatch warning
+    navigator.permissions?.query({ name: 'notifications' }).then(p => {
+      if (!isMobile && Notification.permission === 'denied' && p.state === 'prompt') {
+        zapMessage("w", "Possible stealth headless environment");
+      }
+    });
+
+    return block ? 1 : 0;
+  };
 })();
 
 // Detect element CSS tampering
@@ -1746,17 +1756,70 @@ Object.defineProperty(window, "preventTextCopyAndRightClick", {
   setInterval(performCheck, 10000); // Poll every x seconds
 })();
 
-// Detect absence of any human interaction
-function checkHumanInteraction() {
-  let action = false;
-  const markInteracted = () => { action = true; };
+// Detect human interaction
+const checkHumanInteraction = (() => {
+  return async function() {
+    return new Promise((resolve) => {
+      let interacted = false;
 
-  window.addEventListener("mousemove", markInteracted, { once: true });
-  window.addEventListener("touchstart", markInteracted, { once: true });
-  window.addEventListener("keydown", markInteracted, { once: true });
+      const markInteracted = () => {
+        if (!interacted) {
+          interacted = true;
+          zapMessage("i", "Human interaction detected");
+          cleanup();
+          resolve(1);
+        }
+      };
 
-  if (!action) { zapMessage("w", "No human interaction detected. Possible headless."); return true; }
-}
+      const cleanup = () => {
+        window.removeEventListener("mousemove", markInteracted);
+        window.removeEventListener("touchstart", markInteracted);
+        window.removeEventListener("keydown", markInteracted);
+      };
+
+      // Listen for first human event
+      window.addEventListener("mousemove", markInteracted, { once: true });
+      window.addEventListener("touchstart", markInteracted, { once: true });
+      window.addEventListener("keydown", markInteracted, { once: true });
+
+      setTimeout(() => { // Timeout fallback
+        if (!interacted) {
+          zapMessage("w", "No human interaction detected within timeout");
+          cleanup();
+          resolve(0);
+        }
+      }, 5000); // 5 seconds
+    });
+  };
+})();
+
+// Checks hardware consistency
+const checkHardwareCores = (() => {
+  return function() {
+    const cores = navigator.hardwareConcurrency || 0;
+    if (cores && cores <= 2) {
+      zapMessage("w", `Low hardware cores (${cores}) — possible VM or headless`);
+      return 0;
+    }
+    return 1;
+  };
+})();
+
+// Checks system clock
+const checkTimeDrift = (() => {
+  return function() {
+    try {
+      const now = Date.now();
+      const perfNow = performance.now();
+      const drift = Math.abs(now - performance.timing.navigationStart - perfNow);
+      if (drift > 150) {
+        zapMessage("w", `Clock drift detected: ${drift.toFixed(2)}ms`);
+        return 1;
+      }
+    } catch {}
+    return 0;
+  };
+})();
 
 // Periodic zapcaptcha.css Integrity Check
 (async function checkZapCaptchaCSS() {
@@ -1909,7 +1972,6 @@ function getDelays() {
 
   function showTimeoutMessage(box, timeoutSec) {
     if (!box) return;
-    
     if (zapFlags.getFlag("lockoutsEnabled") && box.classList.contains("softlocked")) { return; }
   
     // Create new message
@@ -2065,7 +2127,6 @@ function getDelays() {
         }
       }
     }
-  
     window.addEventListener("keydown", trap, true);
     window.addEventListener("keypress", trap, true);
     window.addEventListener("keyup", trap, true);
@@ -2165,7 +2226,7 @@ function getDelays() {
     // Set interval fallback if OS doesn't dispatch resize
     const fallbackTimer = setInterval(realignOverlays, 500);
   
-    const DURATION = 25000;
+    const DURATION = 18000;
     const startTime = Date.now();
     const scores = [];
   
@@ -2177,16 +2238,20 @@ function getDelays() {
     };
   
     const checks = [
-      () => detectTorBrowser(),
-      () => detectVPNS(),
-      () => detectHeadlessBrowser().then(b => b ? 1 : 0),
-      () => checkHumanInteraction()
+      async () => (await detectTorBrowser()) ? 0 : 1, // Should be false to pass
+      async () => (await detectVPN()) ? 0 : 1, // Should be false to pass
+      async () => (await detectHeadlessBrowser()) ? 0 : 1, // Should be false to pass
+      async () => await checkHardwareCores(), // Should be true to pass so take as is
+      async () => await checkHumanInteraction(), // Should be true to pass so take as is
+      async () => (await checkTimeDrift()) ? 0 : 1 // Should be false to pass
     ];
   
+    // Run each check and collect its result with its index
     await Promise.allSettled(checks.map(collectScore));
   
-    const avgScore = scores.reduce((a, b) => a + b, 0) / (scores.length || 1);
-    const passed = avgScore >= 1.5 && scores.length >= 3;
+    const passedChecks = scores.filter(s => s === 1).length;
+    zapMessage("i", "Passed Frictionless Checks: ", passedChecks);
+    const passed = passedChecks >= 4;
     const delayRemaining = Math.max(0, DURATION - (Date.now() - startTime));
   
     setTimeout(async () => {
@@ -2196,11 +2261,7 @@ function getDelays() {
           host.remove();
         });
   
-        // Uncomment to enforce passing
-        // if (!passed) {
-        //   await zapLockout("Frictionless CAPTCHA failed");
-        //   return;
-        // }
+        if (!passed) { await zapLockout("Frictionless CAPTCHA failed"); return; } // Gate
   
         for (const box of boxes) {
           const triggerEl = document.querySelector(`[id="${box.dataset.targetId}"]`);
