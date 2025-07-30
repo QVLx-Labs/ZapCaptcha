@@ -4,7 +4,7 @@
  * Designed and developed by QVLx Labs.
  * https://www.qvlx.com
  *
- * © 2024–2025 QVLx Labs. All rights reserved.
+ * © 2025 QVLx Labs. All rights reserved.
  * ZapCaptcha is a proprietary CAPTCHA system for front-end validation without backend server reliance.
  *
  * This software is licensed for non-commercial use and authorized commercial use only.
@@ -161,6 +161,7 @@ let zapFlags = (() => {
     checksumJS:              flags["checksumjs"]              ?? globalSet ?? false,
     checksumCSS:             flags["checksumcss"]             ?? globalSet ?? false,
     clickBlockEnforcement:   flags["clickblockenforcement"]   ?? globalSet ?? false,
+    selectBlockEnforcement:  flags["selectblockenforcement"]  ?? globalSet ?? false,
     functionTamperCheck:     flags["functiontampercheck"]     ?? globalSet ?? false,
     canvasSpoofingCheck:     flags["canvasspoofingcheck"]     ?? globalSet ?? false,
     headlessBrowserCheck:    flags["headlessbrowsercheck"]    ?? globalSet ?? false,
@@ -198,6 +199,7 @@ let zapFlags = (() => {
     checksumJS,
     checksumCSS,
     clickBlockEnforcement,
+    selectBlockEnforcement,
     functionTamperCheck,
     canvasSpoofingCheck,
     headlessBrowserCheck,
@@ -1635,21 +1637,19 @@ function insertZapRule(selectorOrRule, rules = null) {
   insertZapRule(`@media (scripting: none) { *{display: none !important;} }`);
 })();
 
-// Lock up all clicks except for links
-const preventTextCopyAndRightClick = (function () {
-  function blockCopyAndContext() {
-    if (!zapFlags.getFlag("clickBlockEnforcement")) { return; }
+// Block copy events and selection
+const blockCopyFunction = (function () {
+  function blockCopyOnly() {
+    if (!zapFlags.getFlag("selectBlockEnforcement")) return;
 
-    insertZapRule("body.nocopy, body.nocopy *", `user-select: none !important;
-      -webkit-user-select: none !important; -moz-user-select: none !important;
-      -ms-user-select: none !important;`);
+    insertZapRule("body.nocopy, body.nocopy *", `
+      user-select: none !important;
+      -webkit-user-select: none !important;
+      -moz-user-select: none !important;
+      -ms-user-select: none !important;
+    `);
 
     document.body.classList.add("nocopy");
-
-    document.addEventListener("contextmenu", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }, true);
 
     document.addEventListener("copy", function (e) {
       e.preventDefault();
@@ -1657,12 +1657,33 @@ const preventTextCopyAndRightClick = (function () {
     });
   }
 
-  blockCopyAndContext(); // Immediately invoke once
-  return blockCopyAndContext;
+  blockCopyOnly();
+  return blockCopyOnly;
 })();
 
-Object.defineProperty(window, "preventTextCopyAndRightClick", {
-  value: preventTextCopyAndRightClick,
+Object.defineProperty(window, "blockCopyFunction", {
+  value: blockCopyFunction,
+  writable: false,
+  configurable: false
+});
+
+// Block right-click context menu
+const blockRightClickFunction = (function () {
+  function blockContextOnly() {
+    if (!zapFlags.getFlag("clickBlockEnforcement")) return;
+
+    document.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+  }
+
+  blockContextOnly();
+  return blockContextOnly;
+})();
+
+Object.defineProperty(window, "blockRightClickFunction", {
+  value: blockRightClickFunction,
   writable: false,
   configurable: false
 });
@@ -1728,7 +1749,7 @@ const detectHeadlessBrowser = (() => {
   }
 })();
 
-// Periodic zapcaptcha.js Integrity Check
+// zapcaptcha.js Integrity Check
 (async function checkZapCaptchaJS() {
   if (!zapFlags.getFlag("checksumJS")) { return; }
   const meta = document.querySelector('meta[name="zap-js-integrity"]');
@@ -1751,9 +1772,7 @@ const detectHeadlessBrowser = (() => {
        zapMessage("e", "JS Integrity Check Failed- ", err);
       });
     }
-    
-  performCheck(); // Initial check
-  setInterval(performCheck, 10000); // Poll every x seconds
+    performCheck();
 })();
 
 // Detect human interaction
@@ -1788,7 +1807,7 @@ const checkHumanInteraction = (() => {
           cleanup();
           resolve(0);
         }
-      }, 5000); // 5 seconds
+      }, 3000); // 3 seconds
     });
   };
 })();
@@ -1821,7 +1840,7 @@ const checkTimeDrift = (() => {
   };
 })();
 
-// Periodic zapcaptcha.css Integrity Check
+// zapcaptcha.css Integrity Check
 (async function checkZapCaptchaCSS() {
   if (!zapFlags.getFlag("checksumCSS")) return;
 
@@ -1857,7 +1876,6 @@ const checkTimeDrift = (() => {
         cssCheckStarted = true;
         clearInterval(tryStartCheck);
         performCheck();
-        setInterval(performCheck, 10000); // re-check every 10s
       }
     }
   }, 1000);
@@ -2076,15 +2094,17 @@ function getDelays() {
   }
   
   // Capture submits
-  document.addEventListener("submit", function(e) {
+  document.addEventListener("submit", async function(e) {
     const form = e.target;
     const box = form.closest(".zcaptcha-box[data-zcap-frictionless='1']");
     if (!box) return;
   
     const triggerId = box.dataset.targetId;
     const trigger = document.getElementById(triggerId);
+    if (!trigger) return;
   
-    const isVerified = trigger && verifiedMap.get(trigger);
+    // const isVerified = trigger && verifiedMap.has(trigger) && verifiedMap.get(trigger) === true;
+    const verified = await window.ZapCaptcha?.isVerified(button);
     if (!isVerified) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -2107,26 +2127,33 @@ function getDelays() {
   }, true);
   
   // Block keys before checks so nothing gets through
-  (function trapKeysDuringFrictionless() {
+  (function trapInputDuringFrictionless() {
     function trap(e) {
-      if (document.querySelector('.zcaptcha-box[data-zcap-frictionless="1"]')) {
-        const isVerified = [...document.querySelectorAll('.zcaptcha-box[data-zcap-frictionless="1"]')].every(box => {
-          const trigger = document.getElementById(box.dataset.targetId);
-          return verifiedMap.get(trigger);
-        });
-        
-        const el = e.target;
-        const flBox = el.closest("form")?.querySelector('.zcaptcha-box[data-zcap-frictionless="1"]');
-        const trigger = flBox && document.getElementById(flBox.dataset.targetId);
-        const isFrictionless = !!flBox;
-
-        if (isFrictionless && !isVerified) {
+      const flBoxes = document.querySelectorAll('.zcaptcha-box[data-zcap-frictionless="1"]');
+      if (!flBoxes.length) return;
+  
+      const allVerified = [...flBoxes].every(box => {
+        const trigger = document.getElementById(box.dataset.targetId);
+        return verifiedMap.get(trigger);
+      });
+  
+      if (allVerified) return;
+  
+      const el = e.target;
+  
+      // If trying to focus an input inside frictionless-protected form
+      if (el.matches("input, textarea, select")) {
+        const form = el.closest("form");
+        if (form && form.querySelector('.zcaptcha-box[data-zcap-frictionless="1"]')) {
           e.preventDefault();
           e.stopImmediatePropagation();
+          el.blur(); // forcibly remove focus to hide keyboard
           return false;
         }
       }
     }
+  
+    window.addEventListener("focusin", trap, true);  // intercept early
     window.addEventListener("keydown", trap, true);
     window.addEventListener("keypress", trap, true);
     window.addEventListener("keyup", trap, true);
@@ -2164,12 +2191,12 @@ function getDelays() {
       host.style.position = "absolute";
       host.style.top = `${boxRect.top + window.scrollY}px`;
       host.style.left = `${boxRect.left + window.scrollX}px`;
-      host.style.width = `${boxRect.width}px`;
-      host.style.height = `${boxRect.height}px`;
+      host.style.width = `${Math.floor(boxRect.width) - 2}px`;
+      host.style.height = `${Math.floor(boxRect.height) - 2}px`;
       host.style.zIndex = "9999";
       host.style.pointerEvents = "none";
       host.style.borderRadius = getComputedStyle(box).borderRadius || "8px";
-      host.dataset.zapOkShadow = "1";
+      host.dataset.zapOkShadow = "1"
   
       document.body.appendChild(host);
       const shadow = host.attachShadow({ mode: "open" });
@@ -2178,7 +2205,7 @@ function getDelays() {
           .frictionless-mask {
             width: 100%;
             height: 100%;
-            background: yellow;
+            background: rgb(125, 209, 173, 0.8);
             font-weight: bold;
             font-style: italic;
             opacity: 0.8;
@@ -2211,8 +2238,8 @@ function getDelays() {
 
         host.style.top = `${boxRect.top + window.scrollY}px`;
         host.style.left = `${boxRect.left + window.scrollX}px`;
-        host.style.width = `${boxRect.width}px`;
-        host.style.height = `${boxRect.height}px`;
+        host.style.width = `${Math.floor(boxRect.width) - 2}px`;
+        host.style.height = `${Math.floor(boxRect.height) - 2}px`;
       }
     }
     
@@ -2226,7 +2253,7 @@ function getDelays() {
     // Set interval fallback if OS doesn't dispatch resize
     const fallbackTimer = setInterval(realignOverlays, 500);
   
-    const DURATION = 18000;
+    const DURATION = 8000;
     const startTime = Date.now();
     const scores = [];
   
@@ -3099,7 +3126,7 @@ function getDelays() {
         if (countdownInterval) clearInterval(countdownInterval);
         holdTimer = null;
         countdownInterval = null;
-        container.textContent = `Hold click for ${holdMs / 1000} seconds (try again)`;
+        container.textContent = `Hold click for ${holdMs / 1000} seconds`;
       };
     
       container.style.touchAction = "none";
