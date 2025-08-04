@@ -1,6 +1,6 @@
 /*!
- * ZapCaptcha : Human-first cryptographic CAPTCHA system
- * -----------------------------------------------------
+ * ZapCaptcha : People-first cryptographic CAPTCHA system
+ * ------------------------------------------------------
  * Designed and developed by QVLx Labs.
  * https://www.qvlx.com
  *
@@ -172,6 +172,7 @@ let zapFlags = (() => {
     vpnCheck:                flags["vpncheck"]                ?? globalSet ?? false,
     lockShadow:              flags["lockshadow"]              ?? globalSet ?? false,
     monkeyPatching:          flags["monkeypatching"]          ?? globalSet ?? false,
+    devtoolsCheck:           flags["devtoolscheck"]           ?? globalSet ?? false,
     
     viewportConfined:        flags["viewportconfined"]        ?? true,
     canvasMode:              flags["canvasmode"]              ?? true,
@@ -181,7 +182,6 @@ let zapFlags = (() => {
     extraChallenges:         flags["extrachallenges"]         ?? true,
     
     debugMessages:           flags["debugmessages"]           ?? false,
-    consoleWarnings:         flags["consolewarnings"]         ?? false,
     softLock:                flags["softlock"]                ?? false,
     localLock:               flags["localLock"]               ?? false,
     serverMode:              flags["servermode"]              ?? false,
@@ -212,7 +212,7 @@ let zapFlags = (() => {
     monkeyPatching,
     viewportConfined,
     canvasMode,
-    consoleWarnings,
+    devtoolsCheck,
     lockoutsEnabled,
     sessionLock,
     cookieLock,
@@ -462,15 +462,19 @@ const lockState = (() => {
 
 const isProbablyMobile = (() => {
   const test = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i;
-  const fn = function() { return test.test(navigator.userAgent); };
-  return fn;
+  return () => test.test(navigator.userAgent);
 })();
 
 const isProbablyHeadless = (() => {
   const test = /HeadlessChrome|puppeteer|phantomjs|selenium/i;
-  const ua = navigator.userAgent;
-  const fn = function () { return test.test(ua); };
-  return fn;
+  return () => test.test(navigator.userAgent);
+})();
+
+const isProbablyIframe = (() => {
+  return () => {
+    try { return window.self !== window.top; }
+    catch { return true; }
+  };
 })();
 
 // Helper to build payload destined for server
@@ -1481,9 +1485,10 @@ function renderBlockedMessage() {
 
 // Main iframe guard routine with styling and neutralization
 function zapIframeGuard() {
-  if (!zapFlags.getFlag("iframeEmbedCheck") || zapFlags.getFlag("zapIframeGuarded")) return;
+  if (!zapFlags.getFlag("iframeEmbedCheck")) return;
   zapIframeGuarded = true; // Singleshot lock
-  if (window.top === window.self) { return; }
+  const isIframe = isProbablyIframe();
+  if (!isIframe) { return; }
 
   zapMessage("w", "Iframe embedding detected– attempting neutralization");
 
@@ -1513,7 +1518,7 @@ function zapIframeGuard() {
 
   // Fallback in case RAF fails or DOM wasn't ready
   setTimeout(() => {
-    if ((window.top !== window.self) && !zapIframeRendered) {
+    if (isIframe && !zapIframeRendered) {
       renderBlockedMessage();
       haltPropagation();
       freezeDOM();
@@ -3143,29 +3148,55 @@ function getDelays() {
     shadow.appendChild(container);
   }
   
-  // False positives on mobile and with iframes
-  function dimensionCheck() {
-    const threshold = 160;
+  // DevTools detection
+  const threshold = 160;
+  const devtools = {
+    open: false,
+    orientation: null
+  };
+    
+  const reloadIfDetected = () => {
+    if (zapFlags.getFlag("devtoolsCheck")) {
+      zapMessage("w", "DevTools detected — reloading");
+      location.reload();
+    }
+  };
+  
+  const checkDevTools = () => {
     const wDiff = window.outerWidth - window.innerWidth;
     const hDiff = window.outerHeight - window.innerHeight;
-    if (wDiff > threshold || hDiff > threshold) { zapMessage("w", "DevTools window dimension anomaly"); }
-  }
- 
-  // Debugger timing anomaly
-  function timingCheck() {
-    const start = performance.now();
-    debugger;
-    const end = performance.now();
-    if (end - start > 50) { zapMessage("w", "Debugger slowdown detected"); }
-  }
- 
-  // Run all checks repeatedly
-  if (zapFlags.getFlag("consoleWarnings")) {
+  
+    const ua = navigator.userAgent;
+    const isMobile = isProbablyMobile();
+    const isIframe = isProbablyIframe();
+    if (isMobile || isIframe) return;
+  
+    const widthThreshold = wDiff > threshold;
+    const heightThreshold = hDiff > threshold;
+    const orientation = widthThreshold ? 'vertical' : 'horizontal';
+  
+    const devtoolsLikely =
+      (window.Firebug && window.Firebug.chrome && window.Firebug.chrome.isInitialized) ||
+      widthThreshold || heightThreshold;
+  
+    if (devtoolsLikely && (!devtools.open || devtools.orientation !== orientation)) {
+      devtools.open = true;
+      devtools.orientation = orientation;
+      reloadIfDetected();
+    } else if (!devtoolsLikely && devtools.open) {
+      devtools.open = false;
+      devtools.orientation = null;
+    }
+  };
+  
+  // Run check repeatedly
+  if (zapFlags.getFlag("devtoolsCheck")) {
     setInterval(() => {
       try {
-        dimensionCheck();
-        timingCheck();
-      } catch (e) { zapMessage("e", "Console warning issue: ", e); }
-    }, 10000);
+        checkDevTools();
+      } catch (e) {
+        zapMessage("e", "DevTools check failure:", e);
+      }
+    }, 1500);
   }
 })();
