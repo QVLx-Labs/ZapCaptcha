@@ -1778,6 +1778,7 @@ const detectHeadlessBrowser = (() => {
           console.error("actual: ", actual);
           // zapLockout("zapcaptcha.js hash mismatch",`Expected: ${expected}\nActual: ${actual}`);
           await zapLockout("zapcaptcha.js hash mismatch");
+          if (!zapFlags.getFlag("lockoutsEnabled")) { alert("WARNING: JS checksum mismatch!"); }
         }
       })
       .catch(err => {
@@ -1860,35 +1861,36 @@ const checkTimeDrift = (() => {
   if (!meta || !meta.content || !meta.content.startsWith("sha384-")) return;
 
   const expected = meta.content.trim();
-  const cssHref = "zapcaptcha.css";
 
   async function performCheck() {
-    // Only run after zapcaptcha.css is available in DOM
-    const link = document.querySelector(`link[href*="${cssHref}"]`);
-    if (!link) return; // Skip until stylesheet is injected
+    try {
+      const link = document.querySelector('link[href*="zapcaptcha.css"]');
+      if (!link) throw new Error("zapcaptcha.css link element not found");
 
-    fetch(cssHref)
-      .then(r => r.ok ? r.text() : Promise.reject("Failed to fetch zapcaptcha.css"))
-      .then(text => sha384(text))
-      .then(async hash => {
-        const actual = "sha384-" + hash;
-        if (actual !== expected) { // TBD send the full details. Holding off for performance
-          // await zapLockout("zapcaptcha.css hash mismatch", `Expected: ${expected}\nActual: ${actual}`);
-          await zapLockout("zapcaptcha.css hash mismatch");
-        }
-      })
-      .catch(err => { zapMessage("e", "CSS Integrity Check Failed"); });
+      const cssUrl = link.getAttribute("href");
+      const response = await fetch(cssUrl, { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to fetch zapcaptcha.css");
+
+      const text = await response.text();
+      const hash = await sha384(text);
+      const actual = "sha384-" + hash;
+
+      if (actual !== expected) {
+        await zapLockout("zapcaptcha.css hash mismatch");
+        if (!zapFlags.getFlag("lockoutsEnabled")) { alert("WARNING: CSS checksum mismatch!"); }
+      }
+    } catch (err) {
+      zapMessage("e", "CSS Integrity Check Failed:", err);
+    }
   }
 
-  // Retry every 5s until stylesheet is live, then poll
+  // Retry every 1s until stylesheet is present, then run once
   let cssCheckStarted = false;
   const tryStartCheck = setInterval(() => {
-    if (document.querySelector(`link[href*="${cssHref}"]`)) {
-      if (!cssCheckStarted) {
-        cssCheckStarted = true;
-        clearInterval(tryStartCheck);
-        performCheck();
-      }
+    if (!cssCheckStarted && document.querySelector('link[href*="zapcaptcha.css"]')) {
+      cssCheckStarted = true;
+      clearInterval(tryStartCheck);
+      performCheck();
     }
   }, 1000);
 })();
