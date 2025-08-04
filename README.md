@@ -59,13 +59,14 @@ browser-side protection — and optional server mode for enterprise-grade contro
 });
 ```
 
-5. (Optional) Enable server mode:
+5. Enable server mode (Optional):
+```
    <meta name="zap-server-pubkey" content="-----BEGIN PUBLIC KEY-----...">
    <meta name="zap-flags" content="serverMode = true">
-
+```
 --------------------------------------------------------------------------------
 
-🔐 SERVER MODE (Optional)
+🔐 SERVER MODE
 To cryptographically bind verification to a backend, ZapCaptcha can:
 • Sign telemetry payloads with ephemeral RSA keys
 • Send signed verification and lockout events to your server
