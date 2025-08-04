@@ -6,8 +6,8 @@
 ███████╗██║  ██║██║     ╚██████╗██║  ██║██║        ██║   ╚██████╗██║  ██║██║  ██║
 ╚══════╝╚═╝  ╚═╝╚═╝      ╚═════╝╚═╝  ╚═╝╚═╝        ╚═╝    ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝
                                                                                  
-</pre>                                                                                                                                     
-                  ZAPCAPTCHA – BOT DEFENSE FOR THE MODERN WEB
+</pre>                                                                                                                                   
+<p align="center"><strong>ZAPCAPTCHA – BOT DEFENSE FOR THE MODERN WEB</strong></p>
 
 🔒 ABOUT
 ZapCaptcha is a cryptographically verifiable, fully front-end CAPTCHA solution 
