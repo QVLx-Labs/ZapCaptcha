@@ -257,7 +257,7 @@ let zapFlags = (() => {
     await getZapID(); // Force zapID generation early
   }
   
-  if (valid && consoleWarnings) {
+  if (valid && debugMessages) {
     zapMessage("i", "ZapCaptcha: serverMode active, key fingerprint:", fingerprint);
   } else if (!valid) { // Downgrade
     zapMessage("w", "serverMode downgraded due to bad key");
@@ -382,9 +382,14 @@ function injectZapChecksumBadge(checksum) {
 
 (async function initZapChecksumBadge() {
   try {
-    const checksum = await sha384();
+    const response = await fetch("https://zapcaptcha.com/zapcaptcha.js", { cache: "no-store" });
+    if (!response.ok) throw new Error("Unable to fetch zapcaptcha.js from origin");
+    const text = await response.text();
+    const checksum = await sha384(text); // hash actual source
     injectZapChecksumBadge(checksum);
-  } catch (err) { zapMessage("w", "ZapCaptcha: Failed to compute checksum badge:", err); }
+  } catch (err) {
+    zapMessage("w", "ZapCaptcha: Failed to compute checksum badge:", err);
+  }
 })();
 
 const unlockState = (() => {
@@ -1763,14 +1768,16 @@ const detectHeadlessBrowser = (() => {
   const expected = meta.content.trim();
 
   async function performCheck() {
-    fetch("zapcaptcha.js")
+    fetch("https://zapcaptcha.com/zapcaptcha.js", { cache: "no-store" })
       .then(r => r.ok ? r.text() : Promise.reject("Failed to fetch zapcaptcha.js"))
       .then(text => sha384(text))
       .then(async hash => {
         const actual = "sha384-" + hash;
         if (actual !== expected) {
-          // ZapLockout("zapcaptcha.js hash mismatch",`Expected: ${expected}\nActual: ${actual}`);
-          await ZapLockout("zapcaptcha.js hash mismatch");
+          console.error("expected: ", expected);
+          console.error("actual: ", actual);
+          // zapLockout("zapcaptcha.js hash mismatch",`Expected: ${expected}\nActual: ${actual}`);
+          await zapLockout("zapcaptcha.js hash mismatch");
         }
       })
       .catch(err => {
