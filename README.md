@@ -81,7 +81,7 @@ for implementation details.
 
 --------------------------------------------------------------------------------
 
-👨‍💻 LICENSE
+📃LICENSE
 Copyright (C) 2025 QVLX LLC
 
 This project is licensed under the GNU General Public License v3.0.
