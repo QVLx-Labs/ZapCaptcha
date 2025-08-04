@@ -42,8 +42,7 @@ browser-side protection — and optional server mode for enterprise-grade contro
 </form>
 ```
 
-4. Connect the JavaScript API:
-For example:
+4. Connect the JavaScript API (Example):
 ```
 // Form submit needs this code (2b)
   const formTrigger = document.getElementById("example2_button");
