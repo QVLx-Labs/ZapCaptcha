@@ -34,18 +34,39 @@ browser-side protection — and optional server mode for enterprise-grade contro
    <meta name="zap-flags" content="allsec = true, lockoutsEnabled = false, vpnCheck = false">
 
 3. Add a ZapCaptcha widget:
-   <div class="zcaptcha-box" data-zcap-timeout="30">
-     <button class="zapcaptcha-button" disabled>Verify Me</button>
-     <div class="verified-label">✅ Verified</div>
-   </div>
+```
+<form id="demoForm" action="success.html" method="POST">
+   <div class="zcaptcha-box" data-zcap-timeout="5" data-target-id="example2_button"></div>
+   <input type="text" placeholder="Enter text here" required />
+   <button type="submit" class="zapcaptcha-button" id="example2_button" disabled>Submit</button>
+</form>
+```
 
 4. (Optional) Enable server mode:
    <meta name="zap-server-pubkey" content="-----BEGIN PUBLIC KEY-----...">
+   <meta name="zap-flags" content="serverMode = true">
 
 5. Use the JavaScript API:
    ZapCaptcha.verify(el, callback)
    ZapCaptcha.isVerified(el)
    ZapCaptcha.clear(el)
+
+For example:
+```
+// Form submit needs this code (2b)
+  const formTrigger = document.getElementById("example2_button");
+
+  if (formTrigger) {
+    formTrigger.addEventListener("click", (e) => {
+      e.preventDefault();
+      const form = document.getElementById("demoForm");
+      window.ZapCaptcha?.verify(formTrigger, () => {
+        form.submit();
+      });
+    });
+  }
+});
+```
 
 --------------------------------------------------------------------------------
 
@@ -69,4 +90,4 @@ See LICENSE.txt for details.
 --------------------------------------------------------------------------------
 
 🌐 Learn more at: https://zapcaptcha.com
-🔬 Built by QVLx Labs · https://qvlx.com · #ProtectAndEmpower
+🛡️ Built by QVLx Labs · https://qvlx.com · #ProtectAndEmpower
