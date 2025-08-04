@@ -28,12 +28,16 @@ browser-side protection — and optional server mode for enterprise-grade contro
 
 🛠️ USAGE
 1. Include the ZapCaptcha JS:
+```
    <script type="module" src="https://zapcaptcha.com/zapcaptcha.js"></script>
+```
 
-2. Pass flags through meta tag:
+3. Pass flags through meta tag:
+```
    <meta name="zap-flags" content="allsec = true, lockoutsEnabled = false, vpnCheck = false">
+```
 
-3. Add a ZapCaptcha widget:
+5. Add a ZapCaptcha widget:
 ```
 <form id="demoForm" action="success.html" method="POST">
    <div class="zcaptcha-box" data-zcap-timeout="5" data-target-id="example2_button"></div>
