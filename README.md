@@ -42,11 +42,7 @@ browser-side protection — and optional server mode for enterprise-grade contro
 </form>
 ```
 
-4. (Optional) Enable server mode:
-   <meta name="zap-server-pubkey" content="-----BEGIN PUBLIC KEY-----...">
-   <meta name="zap-flags" content="serverMode = true">
-
-5. Use the JavaScript API:
+4. Use the JavaScript API:
    ZapCaptcha.verify(el, callback)
    ZapCaptcha.isVerified(el)
    ZapCaptcha.clear(el)
@@ -67,6 +63,10 @@ For example:
   }
 });
 ```
+
+5. (Optional) Enable server mode:
+   <meta name="zap-server-pubkey" content="-----BEGIN PUBLIC KEY-----...">
+   <meta name="zap-flags" content="serverMode = true">
 
 --------------------------------------------------------------------------------
 
