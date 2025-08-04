@@ -1,13 +1,5 @@
-<pre>
-███████╗ █████╗ ██████╗  ██████╗ █████╗ ██████╗ ████████╗ ██████╗██╗  ██╗ █████╗ 
-╚══███╔╝██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗╚══██╔══╝██╔════╝██║  ██║██╔══██╗
-  ███╔╝ ███████║██████╔╝██║     ███████║██████╔╝   ██║   ██║     ███████║███████║
- ███╔╝  ██╔══██║██╔═══╝ ██║     ██╔══██║██╔═══╝    ██║   ██║     ██╔══██║██╔══██║
-███████╗██║  ██║██║     ╚██████╗██║  ██║██║        ██║   ╚██████╗██║  ██║██║  ██║
-╚══════╝╚═╝  ╚═╝╚═╝      ╚═════╝╚═╝  ╚═╝╚═╝        ╚═╝    ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝
-                                                                                 
-</pre>                                                                                                                                   
-<p align="center"><strong>ZAPCAPTCHA – BOT DEFENSE FOR THE MODERN WEB</strong></p>
+<h1 align="center"><strong>ZAPCAPTCHA</strong></h1>                                                                                                                               
+<p align="center"><strong>BOT DEFENSE FOR THE MODERN WEB</strong></p>
 
 🔒 ABOUT
 ZapCaptcha is a cryptographically verifiable, fully front-end CAPTCHA solution 
