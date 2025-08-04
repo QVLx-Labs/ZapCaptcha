@@ -42,11 +42,7 @@ browser-side protection — and optional server mode for enterprise-grade contro
 </form>
 ```
 
-4. Use the JavaScript API:
-   ZapCaptcha.verify(el, callback)
-   ZapCaptcha.isVerified(el)
-   ZapCaptcha.clear(el)
-
+4. Connect the JavaScript API:
 For example:
 ```
 // Form submit needs this code (2b)
