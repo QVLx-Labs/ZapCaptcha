@@ -1,4 +1,4 @@
-<h1 align="center"><strong>⚡ZAPCAPTCHA</strong></h1>                                                                                                                               
+<h1 align="center"><strong>⚡ZAPCAPTCHA⚡</strong></h1>                                                                                                                               
 <p align="center"><strong>BOT DEFENSE FOR THE MODERN WEB</strong></p>
 
 🔒 ABOUT
