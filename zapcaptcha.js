@@ -2211,6 +2211,8 @@ function getDelays() {
       host.style.pointerEvents = "none";
       host.style.borderRadius = getComputedStyle(box).borderRadius || "8px";
       host.dataset.zapOkShadow = "1"
+      host.style.maxWidth = "100vw";
+      host.style.overflowX = "hidden";
   
       document.body.appendChild(host);
       const shadow = host.attachShadow({ mode: "open" });
