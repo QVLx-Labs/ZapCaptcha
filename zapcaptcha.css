@@ -382,3 +382,36 @@ html body div.zcaptcha-bouncer div.zcaptcha-right p.zname a.zcap-brand-link {
   color: #b00020 !important;
   font-weight: bold !important;
 }
+
+/* Add this to fix timeout compact sizing */
+.zcaptcha-label {
+  height: auto !important;          /* override fixed 1.2em */
+  min-height: 1.6em !important;     /* always reserve space */
+  overflow: visible !important;     /* avoid shaving bottoms */
+}
+
+/* Compact variant gets the same hard floor */
+.zcaptcha-box[data-size="compact"] .zcaptcha-label {
+  min-height: 1.6em !important;
+}
+
+/* Spacer pseudo ensures block formatting even if all children are absolute/opacity 0 */
+.zcaptcha-label::after {
+  content: "";
+  display: block;
+  height: 0;
+  padding-bottom: 0.2em; /* tiny buffer so it never collapses visually */
+  pointer-events: none;
+}
+
+/* Compact timeout message: bottom-right half */
+.zcaptcha-box[data-size="compact"] .zcap-timeout-message {
+  position: absolute !important;
+  bottom: 1px !important;
+  right: 4px !important;
+  left: auto !important;
+  width: auto !important;
+  max-width: 54% !important;
+  text-align: center !important;
+  box-sizing: border-box !important;
+}
