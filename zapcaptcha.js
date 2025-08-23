@@ -28,7 +28,7 @@ const importPemPublicKey = (() => {
       return await crypto.subtle.importKey("spki",  binaryDer.buffer,
         { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, true, ["verify"]);
     }
-    catch (err) { console.error("ZapCaptcha: importPemPublicKey failed:", err); return null; }
+    catch (err) { zapMessage("e", "ZapCaptcha: importPemPublicKey failed:", err); return null; }
   };
 })();
 
@@ -86,7 +86,7 @@ const validateZapPublicKey = (() => {
                fingerprint
              };
     }
-    catch (err) { console.error("validateZapPublicKey failed:", err); return { valid: false }; }
+    catch (err) { zapMessage("e", "validateZapPublicKey failed:", err); return { valid: false }; }
   };
 })();
 
@@ -333,56 +333,87 @@ const sha384 = (() => {
 })();
 
 function injectZapChecksumBadge(checksum) {
+  injectZapChecksumBadge._sheet = injectZapChecksumBadge._sheet || null;
+  if (!injectZapChecksumBadge._relRule) {
+    const addRule = (selector, decl) => {
+      try {
+        if (typeof insertZapRule === "function") return insertZapRule(selector, decl);
+      } catch {}
+      try {
+        if (typeof zapStyleSheet !== "undefined" && zapStyleSheet) {
+          zapStyleSheet.insertRule(`${selector}{${decl}}`, zapStyleSheet.cssRules.length);
+        }
+      } catch {}
+    };
+    addRule('[data-zap-rel="1"]', 'position:relative!important;');
+    injectZapChecksumBadge._relRule = true;
+  }
+
+  const SHEET_CSS =
+    ':host{position:absolute;bottom:2px;left:4px;z-index:9999;pointer-events:none}' +
+    '.i{all:initial;display:inline-block;font-size:10px;font-family:Inter,Rubik,sans-serif;padding:2px;border-radius:4px;user-select:none;cursor:pointer;background:linear-gradient(145deg,#F9DC75,#e6c24e,#fdf0b0);color:#000;box-shadow:inset 0 1px 2px rgba(255,255,255,.3),inset 0 -1px 1px rgba(0,0,0,.2),0 0 1px rgba(0,0,0,.4);transition:transform .2s ease,opacity .2s ease;opacity:.9;pointer-events:auto}';
+
+  const canAdopt =
+    typeof CSSStyleSheet !== "undefined" &&
+    typeof CSSStyleSheet.prototype.replaceSync === "function" &&
+    ("adoptedStyleSheets" in ShadowRoot.prototype || "adoptedStyleSheets" in Document.prototype);
+
   document.querySelectorAll(".zcaptcha-box").forEach(box => {
+    if (box.querySelector('div[data-zapOkShadow="1"]')) return;
+    
+    // Mark this specific box to receive the scoped relative rule
+    box.setAttribute("data-zap-rel", "1");
+
+    // Fallback to original inline (only if CSSOM is unavailable), to guarantee identical anchor
+    if (typeof zapStyleSheet === "undefined" || !zapStyleSheet) {
+      try { box.style.position = "relative"; } catch {}
+    }
+
+    // Host wrapper (no inline styles needed; :host handles geometry)
     const wrapper = document.createElement("div");
     wrapper.dataset.zapOkShadow = "1";
-    wrapper.style.position = "absolute";
-    wrapper.style.bottom = "2px";
-    wrapper.style.left = "4px";
-    wrapper.style.zIndex = "9999";
-    wrapper.style.pointerEvents = "none"; // Prevent blocking other content
     const shadow = wrapper.attachShadow({ mode: "closed" });
 
+    // Shadow stylesheet (prefer constructable; fallback to nonced <style>)
+    let styled = false;
+    if (canAdopt) {
+      try {
+        if (!injectZapChecksumBadge._sheet) {
+          const sheet = new CSSStyleSheet();
+          sheet.replaceSync(SHEET_CSS);
+          injectZapChecksumBadge._sheet = sheet;
+        }
+        shadow.adoptedStyleSheets = [injectZapChecksumBadge._sheet];
+        styled = true;
+      } catch {}
+    }
+    if (!styled) {
+      const styleEl = document.createElement("style");
+      const nonce = document.querySelector('meta[name="csp-nonce"]')?.content;
+      if (nonce) styleEl.setAttribute("nonce", nonce);
+      styleEl.textContent = SHEET_CSS;
+      shadow.appendChild(styleEl);
+    }
+
+    // Badge icon
     const icon = document.createElement("div");
+    icon.className = "i";
     icon.textContent = "SHA-384";
     icon.title = `Checksum: sha384-${checksum}`;
-    icon.style.cssText = `
-      all: initial;
-      display: inline-block;
-      font-size: 10px;
-      font-family: 'Inter', 'Rubik', sans-serif;
-      font-family: san-serif;
-      padding: 2px;
-      border-radius: 4px;
-      user-select: none;
-      cursor: pointer;
-      background: linear-gradient(145deg, #F9DC75, #e6c24e, #fdf0b0);
-      color: black;
-      box-shadow:
-        inset 0 1px 2px rgba(255, 255, 255, 0.3),
-        inset 0 -1px 1px rgba(0, 0, 0, 0.2),
-        0 0 1px rgba(0, 0, 0, 0.4);
-      transition: transform 0.2s ease, opacity 0.2s ease;
-      opacity: 0.9;
-    `;
-
     icon.addEventListener("click", () => {
-      navigator.clipboard.writeText(checksum);
+      try { navigator.clipboard.writeText(checksum); } catch {}
       icon.textContent = "Copied!";
-      setTimeout(() => (icon.textContent = "SHA-384"), 1000);
+      setTimeout(() => { icon.textContent = "SHA-384"; }, 1000);
     });
 
     shadow.appendChild(icon);
-    wrapper.style.position = "absolute";
-    wrapper.style.zIndex = "9999";
-    box.style.position = "relative"; // Ensure box is positioned
     box.appendChild(wrapper);
   });
 }
 
 (async function initZapChecksumBadge() {
   try {
-    const response = await fetch("https://zapcaptcha.com/zapcaptcha.js", { cache: "no-store" });
+    const response = await fetch("https://zapcaptcha.com/zapcaptcha.js", { cache: "no-store", credentials: "omit" });
     if (!response.ok) throw new Error("Unable to fetch zapcaptcha.js from origin");
     const text = await response.text();
     const checksum = await sha384(text); // hash actual source
@@ -712,17 +743,25 @@ document.querySelectorAll(".zapcaptcha-button").forEach(btn => btn.disabled = tr
 
 // Set up a CSSOM sheet
 const zapStyleSheet = (() => {
-  const style = document.createElement("style");
-  const cspNonce = document.querySelector('meta[name="csp-nonce"]')?.content;
-  if (cspNonce) { style.setAttribute("nonce", cspNonce); }
-  style.setAttribute("data-zapcaptcha", "true");
-
-  // Safe CSP-compatible fix (Nonce compatible)
   try {
+    const nonce =
+      (document.currentScript && document.currentScript.nonce) ||
+      document.querySelector('script[nonce]')?.nonce ||
+      document.querySelector('meta[name="csp-nonce"]')?.content || "";
+
+    if (!nonce) { zapMessage("w","No CSP nonce; skipping stylesheet"); return null; }
+
+    const style = document.createElement("style");
+    style.setAttribute("nonce", nonce);
+    style.setAttribute("data-zapcaptcha", "true");
     document.head.appendChild(style);
-    if (!style.sheet) { zapMessage("w", "CSSOM sheet not attaching (CSP)"); return null; }
+
+    if (!style.sheet) { zapMessage("w","CSSOM sheet not attaching (CSP)"); return null; }
     return style.sheet;
-  } catch (e) { zapMessage("e", "Failed to create sheet under CSP:", e); return null; }
+  } catch (e) {
+    zapMessage("e","Failed to create sheet under CSP:", e);
+    return null;
+  }
 })();
 
 insertZapRule(".zcap-trap", `position: absolute; opacity: 0; pointer-events: none;`);
@@ -966,74 +1005,87 @@ setInterval(() => { // Repeatedly runs the test function every 10 seconds
 
 // Trip mines
 async function injectCheckboxTraps() {
-  const count = Math.floor(getCryptoFloat(1, 4)); // 1–3 traps
+  // Fallback sheet creator (used if insertZapRule/zapStyleSheet are unavailable)
+  const ensureSheet = () => {
+    if (injectCheckboxTraps._sheet) return injectCheckboxTraps._sheet;
+    const style = document.createElement("style");
+    style.setAttribute("data-zapcaptcha", "traps-fallback");
+    try { document.head.appendChild(style); } catch {}
+    injectCheckboxTraps._sheet = style.sheet || null;
+    return injectCheckboxTraps._sheet;
+  };
 
+  const addRule = (selector, decl) => {
+    try {
+      if (typeof insertZapRule === "function") return insertZapRule(selector, decl);
+    } catch {}
+    try {
+      if (typeof zapStyleSheet !== "undefined" && zapStyleSheet) {
+        zapStyleSheet.insertRule(`${selector}{${decl}}`, zapStyleSheet.cssRules.length);
+        return;
+      }
+    } catch {}
+    const sheet = ensureSheet();
+    try { sheet && sheet.insertRule(`${selector}{${decl}}`, sheet.cssRules.length); } catch {}
+  };
+
+  if (!injectCheckboxTraps._cssInit) {
+    // Base trap: absolute + fully transparent (hard to override)
+    addRule(".zcap-trap", "position:absolute!important;opacity:0!important;");
+    // Clickable traps (checkbox honeypots)
+    addRule(".zcap-trap.zcap-clickable", "pointer-events:auto!important;width:18px!important;height:18px!important;z-index:9999!important;");
+    // Offscreen traps (text inputs + radios)
+    addRule(".zcap-trap.zcap-offscreen", "left:-9999px!important;width:1px!important;height:1px!important;pointer-events:none!important;");
+    injectCheckboxTraps._cssInit = true;
+  }
+
+  // Fake randomly positioned clickable checkbox traps
+  const count = Math.floor(getCryptoFloat(1, 4)); // 1..3 inclusive
   for (let i = 0; i < count; i++) {
     const trap = document.createElement("input");
     trap.type = "checkbox";
-    trap.name = `trap_${crypto.randomUUID()}`;
-    trap.classList.add("zcap-trap");
-
-    Object.assign(trap.style, {
-      position: "absolute",
-      left: `${Math.floor(Math.random() * window.innerWidth)}px`,
-      top: `${Math.floor(Math.random() * window.innerHeight)}px`,
-      width: "18px",
-      height: "18px",
-      opacity: "0",
-      pointerEvents: "auto",
-      zIndex: "9999"
-    });
-
+    trap.name = `trap_${(crypto.randomUUID?.() || Math.random().toString(36).slice(2))}`;
+    trap.classList.add("zcap-trap", "zcap-clickable");
     trap.setAttribute("aria-hidden", "true");
     trap.autocomplete = "off";
     trap.tabIndex = -1;
 
-    trap.addEventListener("change", async () => { await zapLockout("ZapCaptcha honeypot triggered"); });
+    // Position each checkbox at a cryptographically random viewport location (like original)
+    const x = Math.floor(Math.random() * window.innerWidth);
+    const y = Math.floor(Math.random() * window.innerHeight);
+    const zid = "zid_" + (crypto.randomUUID?.() || Math.random().toString(36).slice(2));
+    trap.setAttribute("data-zid", zid);
+    addRule(`.zcap-trap.zcap-clickable[data-zid="${zid}"]`, `left:${x}px!important;top:${y}px!important;`);
+
+    trap.addEventListener("change", async () => {
+      try { await zapLockout("ZapCaptcha honeypot triggered"); } catch {}
+    });
 
     document.body.appendChild(trap);
   }
 
+  // Fake offscreen text inputs
   for (let i = 0; i < 2; i++) {
     const fake = document.createElement("input");
     fake.type = "text";
-    fake.name = `fk_${crypto.randomUUID()}`;
-    fake.classList.add("zcap-trap");
-
-    Object.assign(fake.style, {
-      position: "absolute",
-      left: `-9999px`,
-      width: "1px",
-      height: "1px",
-      opacity: "0",
-      pointerEvents: "none"
-    });
-
+    fake.name = `fk_${(crypto.randomUUID?.() || Math.random().toString(36).slice(2))}`;
+    fake.classList.add("zcap-trap", "zcap-offscreen");
     fake.setAttribute("aria-hidden", "true");
     fake.autocomplete = "off";
     fake.tabIndex = -1;
     document.body.appendChild(fake);
   }
 
+  // Fake radio pair offscreen
   const radio1 = document.createElement("input");
   radio1.type = "radio";
   radio1.name = "bot_radio";
   radio1.value = "1";
-  radio1.classList.add("zcap-trap");
-
-  Object.assign(radio1.style, {
-    position: "absolute",
-    left: `-9999px`,
-    width: "1px",
-    height: "1px",
-    opacity: "0",
-    pointerEvents: "none"
-  });
-
+  radio1.classList.add("zcap-trap", "zcap-offscreen");
   radio1.setAttribute("aria-hidden", "true");
   radio1.tabIndex = -1;
 
-  const radio2 = radio1.cloneNode();
+  const radio2 = radio1.cloneNode(false);
   radio2.value = "2";
 
   document.body.appendChild(radio1);
@@ -1045,16 +1097,65 @@ injectCheckboxTraps();
 function injectHoneypotFields() {
   if (!document.body) return;
 
-  const randId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+  if (!injectHoneypotFields._sheet) {
+    // Reuse if already present
+    let sheet = document.querySelector('style[data-zapcaptcha="honeypots"]')?.sheet || null;
+  
+    // Create a <style> even if there is no nonce (since CSP is gone)
+    if (!sheet) {
+      const style = document.createElement("style");
+      const nonce = document.querySelector('meta[name="csp-nonce"]')?.content;
+      if (nonce) style.setAttribute("nonce", nonce); // optional if CSP present
+      style.setAttribute("data-zapcaptcha", "honeypots");
+      try { document.head.appendChild(style); } catch (e) { zapMessage?.("e","Failed to attach honeypot stylesheet:", e); }
+      sheet = style.sheet || null;
+    }
+  
+    // Final fallback: private sheet if the above didn’t yield a CSSStyleSheet
+    if (!sheet) {
+      const fallback = document.createElement("style");
+      fallback.setAttribute("data-zapcaptcha", "honeypots-fallback");
+      document.head.appendChild(fallback);
+      sheet = fallback.sheet;
+    }
+  
+    injectHoneypotFields._sheet = sheet;
+  
+    const add = (css) => {
+      try { sheet.insertRule(css, sheet.cssRules.length); } catch {}
+    };
+  
+    // Ensure these rules exist even without CSP; use !important to win specificity
+    add(`.zcap-trap{
+      position:absolute !important;
+      left:-99999px !important; top:auto !important;
+      width:1px !important; height:1px !important;
+      margin:0 !important; padding:0 !important; border:0 !important; outline:0 !important;
+      opacity:0 !important; pointer-events:none !important;
+      overflow:hidden !important; white-space:nowrap !important;
+      clip:rect(0 0 0 0) !important; clip-path:inset(50%) !important;
+      appearance:none !important; -webkit-appearance:none !important;
+    }`);
+    add(`.zcap-trap.zcap-hide{ display:none !important; }`);
+    add(`.zcap-trap.zcap-offscreen{
+      position:absolute !important; left:-99999px !important; top:auto !important;
+      width:1px !important; height:1px !important; opacity:0 !important; pointer-events:none !important;
+    }`);
+  }
+
+  const randId = () => (crypto.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/-/g, "").slice(0, 8);
 
   const traps = [
+    // <input name=email_* autocomplete=nope>  (WAS VISIBLE → now OFFSCREEN)
     () => {
       const el = document.createElement("input");
       el.name = `email_${randId()}`;
       el.id = `id_email_${randId()}`;
       el.setAttribute("autocomplete", "nope");
+      el.classList.add("zcap-offscreen");
       return el;
     },
+    // <input type=text ... display:none>
     () => {
       const el = document.createElement("input");
       el.type = "text";
@@ -1062,28 +1163,30 @@ function injectHoneypotFields() {
       el.id = `id_fax_${randId()}`;
       el.tabIndex = -1;
       el.setAttribute("autocomplete", "off");
-      el.style.display = "none";
+      el.classList.add("zcap-hide");
       return el;
     },
+    // <input ... absolute left:-9999px>
     () => {
       const el = document.createElement("input");
       el.name = `fax_${randId()}`;
       el.id = `id_fax_${randId()}`;
       el.tabIndex = -1;
       el.setAttribute("autocomplete", "off");
-      el.style.position = "absolute";
-      el.style.left = "-9999px";
+      el.classList.add("zcap-offscreen");
       return el;
     },
+    // <input type=checkbox required display:none>
     () => {
       const el = document.createElement("input");
       el.type = "checkbox";
       el.name = `terms_${randId()}`;
       el.id = `id_terms_${randId()}`;
       el.required = true;
-      el.style.display = "none";
+      el.classList.add("zcap-hide");
       return el;
     },
+    // <input name=honeypot_* pattern="^$" ...> (WAS VISIBLE → now OFFSCREEN)
     () => {
       const el = document.createElement("input");
       el.name = `honeypot_${randId()}`;
@@ -1091,26 +1194,30 @@ function injectHoneypotFields() {
       el.pattern = "^$";
       el.title = "Leave blank";
       el.setAttribute("autocomplete", "off");
+      el.classList.add("zcap-offscreen");
       return el;
     },
+    // <input readonly value="ZapCaptcha" display:none>
     () => {
       const el = document.createElement("input");
       el.name = `static_${randId()}`;
       el.id = `id_static_${randId()}`;
       el.readOnly = true;
       el.value = "ZapCaptcha";
-      el.style.display = "none";
+      el.classList.add("zcap-hide");
       return el;
     },
+    // <input type=submit ... display:none>
     () => {
       const el = document.createElement("input");
       el.type = "submit";
       el.name = `submit_fake_${randId()}`;
       el.id = `id_submit_fake_${randId()}`;
       el.value = "Submit";
-      el.style.display = "none";
+      el.classList.add("zcap-hide");
       return el;
     },
+    // <input type=number step=999999 required display:none>
     () => {
       const el = document.createElement("input");
       el.type = "number";
@@ -1118,53 +1225,56 @@ function injectHoneypotFields() {
       el.id = `id_code_${randId()}`;
       el.step = "999999";
       el.required = true;
-      el.style.display = "none";
+      el.classList.add("zcap-hide");
       return el;
     },
+    // <input name=username_* autocomplete=off spellcheck=false> (WAS VISIBLE → now OFFSCREEN)
     () => {
       const el = document.createElement("input");
       el.name = `username_${randId()}`;
       el.id = `id_username_${randId()}`;
       el.setAttribute("autocomplete", "off");
       el.setAttribute("spellcheck", "false");
+      el.classList.add("zcap-offscreen");
       return el;
     },
+    // <select required display:none>
     () => {
       const el = document.createElement("select");
       el.name = `os_${randId()}`;
       el.id = `id_os_${randId()}`;
       el.required = true;
-      el.style.display = "none";
-      const opt1 = new Option("Select...", "");
-      const opt2 = new Option("Windows", "windows");
-      const opt3 = new Option("Linux", "linux");
-      el.append(opt1, opt2, opt3);
+      el.classList.add("zcap-hide");
+      el.append(new Option("Select...", ""), new Option("Windows", "windows"), new Option("Linux", "linux"));
       return el;
     },
+    // <input type=password ... display:none>
     () => {
       const el = document.createElement("input");
       el.type = "password";
       el.name = `pass_confirm_${randId()}`;
       el.id = `id_pass_confirm_${randId()}`;
       el.setAttribute("autocomplete", "new-password");
-      el.style.display = "none";
+      el.classList.add("zcap-hide");
       return el;
     },
+    // <textarea ... display:none>
     () => {
       const el = document.createElement("textarea");
       el.name = `comment_${randId()}`;
       el.id = `id_comment_${randId()}`;
       el.placeholder = "Type your comment here";
       el.maxLength = 300;
-      el.style.display = "none";
+      el.classList.add("zcap-hide");
       return el;
     },
   ];
 
   // Shuffle and select up to 5
-  const shuffled = traps.sort(() => 0.5 - Math.random());
+  const shuffled = traps.slice().sort(() => 0.5 - Math.random());
   const count = Math.floor(Math.random() * 5) + 1;
 
+  // Append AFTER styles exist (no FOUC; no bottom margin)
   for (let i = 0; i < count; i++) {
     try {
       const el = shuffled[i]();
@@ -1173,11 +1283,11 @@ function injectHoneypotFields() {
       el.tabIndex = -1;
       document.body.appendChild(el);
     } catch (err) {
-      zapMessage("w", "Honeypot inject error:", err);
+      zapMessage?.("w", "Honeypot inject error:", err);
     }
   }
 }
-injectHoneypotFields()
+injectHoneypotFields();
 
 // Check the traps. Called before verification success.
 function checkHoneypotTraps() {
@@ -1275,17 +1385,20 @@ function isTorConnectionSpeedSuspicious() {
 // Must use fingerprinting; exit node crosscheck
 // not possible for obvious reasons of IP masking 
 const detectTorBrowser = (() => {
+  const getCspNonce = () =>
+    document.querySelector('meta[name="csp-nonce"]')?.content || "";
+
   return async function () {
     if (!zapFlags.getFlag("torCheck") && !zapFlags.getFlag("frictionLess")) return 0;
 
-    const uaHit = isTorUserAgent(); // strong signal
-    const hardBlocked = uaHit || isTorWebGLBlocked(); // hard fail cases
+    const uaHit = isTorUserAgent();                  // strong signal
+    const hardBlocked = uaHit || isTorWebGLBlocked();// hard fail cases
 
     let torScore = 0;
     if (isTorNavigatorFingerprint()) torScore += 1;
-    if (isTorCanvasBlocked()) torScore += 1;
-    if (isTorAudioBlocked()) torScore += 1;
-    if (isTorPluginTrap()) torScore += 1;
+    if (isTorCanvasBlocked())        torScore += 1;
+    if (isTorAudioBlocked())         torScore += 1;
+    if (isTorPluginTrap())           torScore += 1;
     if (isTorConnectionSpeedSuspicious()) torScore += 0.5;
 
     const isMobile = isProbablyMobile();
@@ -1297,37 +1410,70 @@ const detectTorBrowser = (() => {
 
       await zapLockout("Tor Browser Detected");
 
-      // Clear the page content
+      // Match original behavior: clear body content
       document.body.innerHTML = "";
 
-      // Create host for shadow DOM
+      // Host element for closed shadow root
       const torRoot = document.createElement("div");
       torRoot.id = "tor-block-root";
       torRoot.dataset.zapOkShadow = "1";
       document.body.appendChild(torRoot);
 
-      // Attach closed Shadow DOM
       const shadow = torRoot.attachShadow({ mode: "closed" });
 
-      // Define template
-      const template = document.createElement("template");
-      template.innerHTML = `
-        <style>
-          div#tor-message {
-            background: black;
-            color: red;
-            font-family: sans-serif;
-            padding: 2em;
-            text-align: center;
-          }
-        </style>
-        <div id="tor-message">
-          <h1>❌ Access Blocked</h1>
-          <p>Tor Browser is not supported on this site.</p>
-        </div>
+      // Overlay + message styles. Style the HOST to cover the viewport.
+      const CSS_TEXT = `
+        :host {
+          position: fixed;
+          inset: 0;
+          z-index: 2147483647; /* above everything */
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: black; /* ensures full-page black backdrop like original intent */
+        }
+        #tor-message {
+          color: red;
+          font-family: sans-serif;
+          padding: 2em;
+          text-align: center;
+        }
       `;
 
-      shadow.appendChild(template.content.cloneNode(true));
+      // Prefer constructable stylesheet (CSP-friendly, no nonce needed)
+      let styled = false;
+      try {
+        if (typeof CSSStyleSheet !== "undefined" && CSSStyleSheet.prototype.replaceSync && "adoptedStyleSheets" in shadow) {
+          const sheet = new CSSStyleSheet();
+          sheet.replaceSync(CSS_TEXT);
+          shadow.adoptedStyleSheets = (shadow.adoptedStyleSheets || []).concat(sheet);
+          styled = true;
+        }
+      } catch {}
+
+      // Fallback: nonced <style> inside shadow
+      if (!styled) {
+        const style = document.createElement("style");
+        const nonce = getCspNonce();
+        if (nonce) style.setAttribute("nonce", nonce);
+        style.appendChild(document.createTextNode(CSS_TEXT));
+        shadow.appendChild(style);
+      }
+
+      // Content
+      const msg = document.createElement("div");
+      msg.id = "tor-message";
+
+      const h1 = document.createElement("h1");
+      h1.textContent = "❌ Access Blocked";
+
+      const p = document.createElement("p");
+      p.textContent = "Tor Browser is not supported on this site.";
+
+      msg.appendChild(h1);
+      msg.appendChild(p);
+
+      shadow.appendChild(msg);
     }
 
     return torScore;
@@ -1774,8 +1920,8 @@ const detectHeadlessBrowser = (() => {
       .then(async hash => {
         const actual = "sha384-" + hash;
         if (actual !== expected) {
-          console.error("expected: ", expected);
-          console.error("actual: ", actual);
+          zapMessage("e", "expected: ", expected);
+          zapMessage("e", "actual: ", actual);
           // zapLockout("zapcaptcha.js hash mismatch",`Expected: ${expected}\nActual: ${actual}`);
           await zapLockout("zapcaptcha.js hash mismatch");
           if (!zapFlags.getFlag("lockoutsEnabled")) { alert("WARNING: JS checksum mismatch!"); }
@@ -2176,18 +2322,105 @@ function getDelays() {
   async function launchFrictionlessMode() {
     const boxes = Array.from(document.querySelectorAll('.zcaptcha-box[data-zcap-frictionless="1"]'));
     if (!boxes.length) return;
-    
+  
+    // ---------- helpers ----------
+    const getNonce = () => document.querySelector('meta[name="csp-nonce"]')?.content || "";
+  
+    const ensureSheet = (() => {
+      let sheet = null;
+      return () => {
+        if (sheet && sheet.cssRules) return sheet;
+        const style = document.createElement("style");
+        const nonce = getNonce();
+        if (nonce) style.setAttribute("nonce", nonce);
+        style.setAttribute("data-zapcaptcha", "frictionless");
+        document.head.appendChild(style);
+        sheet = style.sheet;
+  
+        // base host styles (no pointer events; absolute)
+        sheet.insertRule(`
+          .fl-host {
+            position: absolute !important;
+            z-index: 9999 !important;
+            pointer-events: none !important;
+          }`, sheet.cssRules.length);
+  
+        return sheet;
+      };
+    })();
+  
+    const upsertGeoRule = (cls, box) => {
+      const sheet = ensureSheet();
+      // delete old rule (if exists)
+      for (let i = sheet.cssRules.length - 1; i >= 0; i--) {
+        const r = sheet.cssRules[i];
+        if (r.selectorText === `.${cls}`) { try { sheet.deleteRule(i); } catch {} }
+      }
+      const rect = box.getBoundingClientRect();
+      const w = Math.max(0, Math.floor(rect.width)  - 2);
+      const h = Math.max(0, Math.floor(rect.height) - 2);
+      const top  = rect.top  + window.scrollY;
+      const left = rect.left + window.scrollX;
+      const radius = getComputedStyle(box).borderRadius || "8px";
+  
+      const ruleText = `
+        .${cls} {
+          top: ${top}px !important;
+          left: ${left}px !important;
+          width: ${w}px !important;
+          height: ${h}px !important;
+          border-radius: ${radius} !important;
+        }`;
+      try { sheet.insertRule(ruleText, sheet.cssRules.length); } catch {}
+    };
+  
+    const buildShadowMask = (shadow) => {
+      const s = document.createElement("style");
+      const nonce = getNonce();
+      if (nonce) s.setAttribute("nonce", nonce);
+      // NOTE: keep original styling exactly (rgb with alpha string preserved)
+      s.appendChild(document.createTextNode(`
+        .frictionless-mask {
+          width: 100%;
+          height: 100%;
+          background: rgb(125, 209, 173, 0.8);
+          font-weight: bold;
+          font-style: italic;
+          opacity: 0.8;
+          border: 2px solid black;
+          border-radius: inherit;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-family: inherit;
+          font-size: 26px;
+          color: black;
+        }
+      `));
+      const mask = document.createElement("div");
+      mask.className = "frictionless-mask";
+      mask.id = "flmask";
+      mask.textContent = "Analyzing";
+      shadow.appendChild(s);
+      shadow.appendChild(mask);
+      return mask;
+    };
+  
+    const uid = () =>
+      (crypto.randomUUID?.() || Math.random().toString(36).slice(2))
+        .replace(/[^a-z0-9]/gi, "").slice(0, 10);
+  
+    // ---------- pre: blur & disable internals ----------
     for (const box of boxes) {
       const trigger = document.querySelector(`[id="${box.dataset.targetId}"]`);
-    
-      if (document.activeElement && box.contains(document.activeElement)) { document.activeElement.blur(); }
-    
-      // Also disable all inputs inside the box
-      const inputs = box.querySelectorAll("input, textarea, button, select");
-      inputs.forEach(input => input.setAttribute("disabled", "true"));
+      if (document.activeElement && box.contains(document.activeElement)) {
+        document.activeElement.blur();
+      }
+      box.querySelectorAll("input, textarea, button, select")
+         .forEach(input => input.setAttribute("disabled", "true"));
     }
-    
-    // Disable all trigger buttons while scanning
+  
+    // Disable triggers while scanning
     boxes.forEach(box => {
       const trigger = document.querySelector(`[id="${box.dataset.targetId}"]`);
       if (trigger) UIOverlayManager.softDisable(trigger);
@@ -2195,82 +2428,53 @@ function getDelays() {
   
     const overlays = [];
   
-    await new Promise(r => requestAnimationFrame(() => { requestAnimationFrame(r); })); // Need to wait
+    // Wait two RAFs (layout settle)
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   
-    // Create overlays
+    // ---------- create overlays (CSP-safe; no inline/innerHTML) ----------
     for (const box of boxes) {
-      const boxRect = box.getBoundingClientRect();
+      const geoClass = `fl-geo-${uid()}`;
+      // insert geometry rule BEFORE append → no FOUC
+      upsertGeoRule(geoClass, box);
+  
       const host = document.createElement("div");
-  
-      host.style.position = "absolute";
-      host.style.top = `${boxRect.top + window.scrollY}px`;
-      host.style.left = `${boxRect.left + window.scrollX}px`;
-      host.style.width = `${Math.floor(boxRect.width) - 2}px`;
-      host.style.height = `${Math.floor(boxRect.height) - 2}px`;
-      host.style.zIndex = "9999";
-      host.style.pointerEvents = "none";
-      host.style.borderRadius = getComputedStyle(box).borderRadius || "8px";
-      host.dataset.zapOkShadow = "1"
-  
+      host.className = `fl-host ${geoClass}`;
+      host.dataset.zapOkShadow = "1";
+      // guard against any paint race
+      host.hidden = true;
       document.body.appendChild(host);
+      host.hidden = false;
+  
       const shadow = host.attachShadow({ mode: "open" });
-      shadow.innerHTML = `
-        <style>
-          .frictionless-mask {
-            width: 100%;
-            height: 100%;
-            background: rgb(125, 209, 173, 0.8);
-            font-weight: bold;
-            font-style: italic;
-            opacity: 0.8;
-            border: 2px solid black;
-            border-radius: inherit;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: inherit;
-            font-size: 26px;
-            color: black;
-          }
-        </style>
-        <div class="frictionless-mask" id="flmask">Analyzing</div>
-      `;
-      const span = shadow.getElementById("flmask");
+      const mask = buildShadowMask(shadow);
+  
       let dotState = 0;
       const interval = setInterval(() => {
         dotState = (dotState + 1) % 10;
-        span.textContent = "Analyzing" + ".".repeat(dotState);
+        mask.textContent = "Analyzing" + ".".repeat(dotState);
       }, 500);
-      overlays.push({ host, interval });
+  
+      overlays.push({ box, host, geoClass, interval });
     }
-    
+  
     async function realignOverlays() {
-      for (let i = 0; i < boxes.length; i++) {
-        const box = boxes[i];
-        const host = overlays[i].host;
-        const boxRect = box.getBoundingClientRect();
-
-        host.style.top = `${boxRect.top + window.scrollY}px`;
-        host.style.left = `${boxRect.left + window.scrollX}px`;
-        host.style.width = `${Math.floor(boxRect.width) - 2}px`;
-        host.style.height = `${Math.floor(boxRect.height) - 2}px`;
-      }
+      for (const o of overlays) upsertGeoRule(o.geoClass, o.box);
     }
-    
+  
     await new Promise(r => requestAnimationFrame(r));
     realignOverlays();
-    
+  
     // Adjust when screen rescale, move, or viewport changes
-    window.addEventListener("resize", realignOverlays);
+    window.addEventListener("resize", realignOverlays, { passive: true });
     window.addEventListener("scroll", realignOverlays, true);
-    
+  
     // Set interval fallback if OS doesn't dispatch resize
     const fallbackTimer = setInterval(realignOverlays, 500);
   
+    // ---------- checks / timing ----------
     const DURATION = 8000;
     const startTime = Date.now();
     const scores = [];
-  
     const collectScore = async (fn) => {
       try {
         const result = await fn();
@@ -2279,15 +2483,14 @@ function getDelays() {
     };
   
     const checks = [
-      async () => (await detectTorBrowser()) ? 0 : 1, // Should be false to pass
-      async () => (await detectVPN()) ? 0 : 1, // Should be false to pass
-      async () => (await detectHeadlessBrowser()) ? 0 : 1, // Should be false to pass
-      async () => await checkHardwareCores(), // Should be true to pass so take as is
-      async () => await checkHumanInteraction(), // Should be true to pass so take as is
-      async () => (await checkTimeDrift()) ? 0 : 1 // Should be false to pass
+      async () => (await detectTorBrowser()) ? 0 : 1,
+      async () => (await detectVPN()) ? 0 : 1,
+      async () => (await detectHeadlessBrowser()) ? 0 : 1,
+      async () => await checkHardwareCores(),
+      async () => await checkHumanInteraction(),
+      async () => (await checkTimeDrift()) ? 0 : 1
     ];
   
-    // Run each check and collect its result with its index
     await Promise.allSettled(checks.map(collectScore));
   
     const passedChecks = scores.filter(s => s === 1).length;
@@ -2297,12 +2500,9 @@ function getDelays() {
   
     setTimeout(async () => {
       try {
-        overlays.forEach(({ host, interval }) => {
-          clearInterval(interval);
-          host.remove();
-        });
+        overlays.forEach(({ host, interval }) => { clearInterval(interval); host.remove(); });
   
-        if (!passed) { await zapLockout("Frictionless CAPTCHA failed"); return; } // Gate
+        if (!passed) { await zapLockout("Frictionless CAPTCHA failed"); return; }
   
         for (const box of boxes) {
           const triggerEl = document.querySelector(`[id="${box.dataset.targetId}"]`);
@@ -2327,7 +2527,6 @@ function getDelays() {
           window.removeEventListener("resize", realignOverlays);
           window.removeEventListener("scroll", realignOverlays, true);
         }
-  
       } catch (err) {
         zapMessage("e", "Frictionless finalization error", err);
       }
@@ -2451,7 +2650,6 @@ function getDelays() {
             });
           }
           setTimeout(() => {
-              console.warn("⚠️ Post-challenge success reached for:", triggerEl.id);
             if (!checkHoneypotTraps()) {
               (async () => { await zapLockout("ZapCaptcha honeypot triggered"); })();
               zapMessage("w", "Honeypot triggered");
@@ -2581,25 +2779,23 @@ function getDelays() {
       document.body.appendChild(overlayEl);
     }
     
+    insertZapRule(".zcap-ui-disabled", "pointer-events:none!important;opacity:.5!important;filter:grayscale(100%)!important;");
+    
     function softDisable(triggerEl) {
       if (!triggerEl) return;
       triggerEl.dataset.zapUiDisabled = "1";
       triggerEl.setAttribute("aria-disabled", "true");
       triggerEl.setAttribute("disabled", "true");
-      triggerEl.style.pointerEvents = "none";
-      triggerEl.style.opacity = "0.5";
-      triggerEl.style.filter = "grayscale(100%)";
-    };
+      triggerEl.classList.add("zcap-ui-disabled"); // replaces inline style
+    }
     
     function softEnable(triggerEl) {
       if (!triggerEl) return;
       delete triggerEl.dataset.zapUiDisabled;
       triggerEl.removeAttribute("aria-disabled");
       triggerEl.removeAttribute("disabled");
-      triggerEl.style.pointerEvents = "";
-      triggerEl.style.opacity = "";
-      triggerEl.style.filter = "";
-    };
+      triggerEl.classList.remove("zcap-ui-disabled"); // restores normal state
+    }
   
     function enable(triggerEl) {
       if (!triggerEl || triggerEl !== currentOwner) return;
