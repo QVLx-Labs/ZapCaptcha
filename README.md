@@ -1,8 +1,7 @@
 <h1 align="center"><strong>⚡ZAPCAPTCHA⚡</strong></h1>                                                                                                                               
 <p align="center"><strong>BOT DEFENSE FOR THE MODERN WEB</strong></p>
 
-🔒 ABOUT
-ZapCaptcha is a cryptographically verifiable, fully front-end CAPTCHA solution 
+🔒 ZapCaptcha is a cryptographically verifiable, fully front-end CAPTCHA solution 
 designed for zero-trust environments and can even power browser-only static sites.
 It includes both interactive and frictionless challenges, anti-bot traps, nonce replay
 protection, timeouts, tamper detection, and optional server-mode binding with RSA 
@@ -13,7 +12,7 @@ browser-side protection — and optional server mode for enterprise-grade contro
 
 --------------------------------------------------------------------------------
 
-🚀 FEATURES
+🔒 FEATURES 🔒
 • DOM & Canvas fallback CAPTCHA modes
 • Nonce-based replay protection using cookies and sessionStorage
 • Visual anti-bot bouncer widget with animated traps
